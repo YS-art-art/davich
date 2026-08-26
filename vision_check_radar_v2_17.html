@@ -1,0 +1,1949 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>비전체크 사전 문진 - 결과 시각화</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<link rel="stylesheet" as="style" crossorigin
+  href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<style>
+  body { margin: 0; background: #F2F4F6; font-family: 'Pretendard', 'Malgun Gothic', sans-serif; }
+  @keyframes screenIn {
+    from { opacity: 0; transform: translateY(10px) scale(0.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .screen-anim {
+    animation: screenIn 0.36s cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: top center;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useMemo } = React;
+
+const AXES = [
+  { key: "ax1", label: "원거리 시력" },
+  { key: "ax2", label: "근거리 시력" },
+  { key: "ax5", label: "교정 상태" },
+  { key: "ax3", label: "눈 편안함" },
+  { key: "ax4", label: "생활 환경" },
+];
+
+/* ---------------------------------------------------------
+   사전 문진 단계 공통 채점 기준
+   - 축별 세부 응답(Q2 거리, Q4 등)이 있으면 해당 축 점수에 직접 반영
+   - 특정 축에 대한 세부 응답이 없을 때는 "착용여부 + 불편호소 여부"로 정해지는
+     전반 상태값을 대체로 사용
+   - 착용 중 + 불편 없음 → 4점대(안정) / 불편함 있음 → 낮은 점수대 / 미착용 → 낮은 점수대
+--------------------------------------------------------- */
+function classifyStatus(isWearing, hasDiscomfort) {
+  if (!isWearing) return 1;
+  if (hasDiscomfort === true) return 1;
+  if (hasDiscomfort === false) return 4;
+  return 1;
+}
+function axisFromSignal(hasDiscomfort, isWearing) {
+  if (hasDiscomfort === true) return 1;
+  if (hasDiscomfort === false) return isWearing ? 4 : 3;
+  return 2;
+}
+const uniformScores = (v) => ({ ax1: v, ax2: v, ax3: v, ax4: v, ax5: v });
+
+// "생활 환경" 축 — Q2에서 선택한 거리/기기에 따라 근거리(1) ~ 원거리(5) 스펙트럼으로 고정 매핑
+function lifestyleScoreFromQ2(q2) {
+  if (!q2) return 2;
+  if (q2.includes("운전")) return 5;
+  if (q2.includes("교실")) return 4;
+  if (q2.includes("집") || q2.includes("사무실")) return 4;
+  if (q2.includes("거실")) return 4;
+  if (q2.includes("책상") || q2.includes("PC") || q2.includes("화장대")) return 3;
+  if (q2.includes("스마트폰")) return 1;
+  if (q2.includes("팔") || q2.includes("테블릿")) return 2;
+  return 2;
+}
+
+function tierOf(score) {
+  if (score <= 1) return "주의";
+  if (score <= 3) return "보통";
+  return "양호";
+}
+const TIER_COLOR = {
+  양호: { fg: "#2E7D32", bg: "#E8F5E9" },
+  보통: { fg: "#6B7280", bg: "#F3F4F6" },
+  주의: { fg: "#C62828", bg: "#FDECEA" },
+};
+const SCALE_COLORS = { 1: "#E7000B", 2: "#F59E0B", 3: "#9CA3AF", 4: "#8FB8FA", 5: "#3182F6" };
+
+// 문구 특이 케이스 — 그룹/응답에 따라 기본 메시지를 다른 문구로 대체
+function resolveMessage(groupKey, axKey, tier, answers, defaultMsg) {
+  if (groupKey === "young" && axKey === "ax5" && tier === "주의" && answers.q1 === "안경 사용 중") {
+    return "시력 변화가 의심되니, 정밀검사로 정확한 도수부터 확인해요";
+  }
+  return defaultMsg;
+}
+
+/* ---------------------------------------------------------
+   그룹별 정의: steps(진행형 문진 단계) + score(채점) + messages + courseRecommend(검사 코스)
+--------------------------------------------------------- */
+const GROUPS = {
+  child: {
+    label: "어린이 (5~14세)",
+    color: "#0EA5E9",
+    initial: { q1: "", q2: "", q3a: "", q4a: "", q3b: "" },
+
+    // 지금까지 결정된 문진 단계를 순서대로 반환. 아직 답하지 않은 마지막 항목이 "현재 질문".
+    steps(a) {
+      const s = [];
+      s.push({
+        key: "q1",
+        title: "안경을 사용하나요?",
+        options: [
+          { label: "처음이에요", value: "처음" },
+          { label: "사용해요", value: "사용" },
+        ],
+      });
+      if (!a.q1) return s;
+
+      s.push({
+        key: "q2",
+        title: "다음 중 무엇을 가장 많이 보세요?",
+        options: [
+          { label: "스마트폰 / 테블릿, 책", value: "스마트폰" },
+          { label: "TV", value: "TV" },
+        ],
+      });
+      if (!a.q2) return s;
+
+      if (a.q2 === "스마트폰") {
+        s.push({
+          key: "q3a",
+          title: "눈이 자주 피곤하거나 비비나요?",
+          options: [
+            { label: "그래요", value: "그래요", icon: "○", iconColor: "#3182F6" },
+            { label: "아니에요", value: "아니에요", icon: "✕", iconColor: "#E7000B" },
+          ],
+        });
+        if (!a.q3a) return s;
+        if (a.q3a === "그래요") {
+          s.push({
+            key: "q4a",
+            title: "글자가 흐리게 보이나요?",
+            options: [
+              { label: "그래요", value: "그래요", icon: "○", iconColor: "#3182F6" },
+              { label: "아니에요", value: "아니에요", icon: "✕", iconColor: "#E7000B" },
+            ],
+          });
+          if (!a.q4a) return s;
+        }
+      } else if (a.q2 === "TV") {
+        s.push({
+          key: "q3b",
+          title: "TV를 볼 때 가까이 다가가거나 눈을 찌푸리나요?",
+          options: [
+            { label: "그래요", value: "그래요", icon: "○", iconColor: "#3182F6" },
+            { label: "아니에요", value: "아니에요", icon: "✕", iconColor: "#E7000B" },
+          ],
+        });
+        if (!a.q3b) return s;
+      }
+      return s;
+    },
+
+    courseRecommend(a) {
+      if (a.q2 === "TV") return a.q3b === "그래요" ? "정밀검사" : "일반검사";
+      if (a.q2 === "스마트폰") {
+        if (a.q3a === "아니에요") return "일반검사";
+        if (a.q3a === "그래요") return a.q4a === "그래요" ? "정밀검사" : "일반검사";
+      }
+      return "일반검사";
+    },
+
+    score(a) {
+      let ax1 = 1, ax2 = 1, ax3 = 0, ax4 = 0, ax5 = 0;
+      const smartDiscomfort =
+        a.q2 === "스마트폰" ? (a.q3a === "그래요" ? true : a.q3a === "아니에요" ? false : undefined) : undefined;
+      const smartClarity =
+        a.q2 === "스마트폰" && a.q3a === "그래요"
+          ? a.q4a === "그래요" ? true : a.q4a === "아니에요" ? false : undefined
+          : undefined;
+      const tvDiscomfort =
+        a.q2 === "TV" ? (a.q3b === "그래요" ? true : a.q3b === "아니에요" ? false : undefined) : undefined;
+      const isWearing = a.q1 === "사용";
+      const overall = smartDiscomfort !== undefined ? smartDiscomfort : tvDiscomfort;
+
+      ax1 = tvDiscomfort !== undefined ? axisFromSignal(tvDiscomfort, isWearing) : 2;
+      ax2 =
+        smartClarity !== undefined
+          ? axisFromSignal(smartClarity, isWearing)
+          : smartDiscomfort !== undefined
+          ? axisFromSignal(smartDiscomfort, isWearing)
+          : 2;
+      ax3 = axisFromSignal(overall, isWearing);
+
+      if (a.q2 === "스마트폰") {
+        ax4 = 1;
+      } else if (a.q2 === "TV") {
+        ax4 = 3;
+      } else {
+        ax4 = 2;
+      }
+
+      ax5 = a.q1 === "처음" ? 1 : axisFromSignal(overall, isWearing);
+      return { ax1, ax2, ax3, ax4, ax5 };
+    },
+
+    messages: {
+      ax1: {
+        양호: "먼 곳도 잘 보고 있어요!",
+        보통: "가끔 먼 곳이 흐려 보인다면 한 번 확인해봐요",
+        주의: "TV를 가까이서 보거나 찌푸린다면, 정밀검사로 정확히 확인해봐요",
+      },
+      ax2: {
+        양호: "책이나 스마트폰 볼 때 편안하시네요!",
+        보통: "눈이 가끔 피곤하다면 주기적으로 확인해주세요",
+        주의: "책 볼 때 눈을 찡그리거나 가까이 다가간다면 정밀검사가 필요해요",
+      },
+      ax3: {
+        양호: "눈이 편안한 상태예요!",
+        보통: "눈 사용이 많은 시기라 주의 관찰이 필요해요",
+        주의: "눈을 자주 비비거나 피곤해한다면, 블루라이트 차단 렌즈가 도움이 될 수 있어요",
+      },
+      ax4: {
+        양호: "실내외 활동이 균형 잡혀 있어요",
+        보통: "디지털 기기 사용이 늘고 있는 편이에요",
+        주의: "스마트폰·책을 많이 보는 편이네요. 블루라이트 차단 렌즈를 고려해보세요",
+      },
+      ax5: {
+        양호: "지금 안경이 잘 맞는지만 정기적으로 확인해요",
+        보통: "다음 정기검진에서 도수 변화를 확인해봐요",
+        주의: "첫 안경이시라면, 정확한 처방으로 편안하게 시작해봐요",
+      },
+    },
+  },
+
+  young: {
+    label: "젊은이 (15~42세)",
+    color: "#3182F6",
+    initial: { q1: "", q2: "", q3: "", q4: "" },
+
+    steps(a) {
+      const nearList = ["스마트폰 거리", "팔 거리(테블릿/책)", "책상 거리(PC 모니터)"];
+      const farList = ["거실 거리(TV)", "교실 거리(칠판, 프로젝트)", "운전"];
+      const s = [];
+      s.push({
+        key: "q1",
+        title: "안경 착용하세요?",
+        options: [
+          { label: "안경 사용 중", value: "안경 사용 중" },
+          { label: "안경 처음", value: "안경 처음" },
+        ],
+      });
+      if (!a.q1) return s;
+
+      s.push({
+        key: "q2",
+        title: "하루 중 가장 많이 보는 것은 무엇인가요?",
+        options: [...nearList, ...farList].map((v) => ({ label: v, value: v })),
+      });
+      if (!a.q2) return s;
+
+      const isNear = nearList.includes(a.q2);
+      if (isNear) {
+        s.push({
+          key: "q3",
+          title: "눈이 자주 피곤하거나 비비나요?",
+          options: [
+            { label: "예", value: "그래요(Yes)", icon: "○", iconColor: "#3182F6" },
+            { label: "아니오", value: "아니요(No)", icon: "✕", iconColor: "#E7000B" },
+          ],
+        });
+        if (!a.q3) return s;
+        if (a.q3 === "그래요(Yes)") {
+          s.push({
+            key: "q4",
+            title: "글자가 흐리게 보이나요?",
+            options: [
+              { label: "예", value: "네", icon: "○", iconColor: "#3182F6" },
+              { label: "아니오", value: "아니오", icon: "✕", iconColor: "#E7000B" },
+            ],
+          });
+          if (!a.q4) return s;
+        }
+      } else {
+        s.push({
+          key: "q3",
+          title: "흐리게 보이나요?",
+          options: [
+            { label: "예", value: "그래요(Yes)", icon: "○", iconColor: "#3182F6" },
+            { label: "아니오", value: "아니요(No)", icon: "✕", iconColor: "#E7000B" },
+          ],
+        });
+        if (!a.q3) return s;
+        if (a.q3 === "그래요(Yes)") {
+          s.push({
+            key: "q4",
+            title: "가끔 두통이 있나요?",
+            options: [
+              { label: "예", value: "네", icon: "○", iconColor: "#3182F6" },
+              { label: "아니오", value: "아니오", icon: "✕", iconColor: "#E7000B" },
+            ],
+          });
+          if (!a.q4) return s;
+        }
+      }
+      return s;
+    },
+
+    courseRecommend(a) {
+      if (a.q3 === "아니요(No)") return "일반검사";
+      if (a.q3 === "그래요(Yes)") return a.q4 === "네" ? "정밀검사" : "일반검사";
+      return "일반검사";
+    },
+
+    score(a) {
+      const nearList = ["스마트폰 거리", "팔 거리(테블릿/책)", "책상 거리(PC 모니터)"];
+      const isNear = nearList.includes(a.q2);
+      const isFar = a.q2 && !isNear;
+      const yes = (v) => (v || "").startsWith("그래");
+      const isWearing = a.q1 === "안경 사용 중";
+
+      const nearDiscomfort = isNear ? (a.q3 ? yes(a.q3) : undefined) : undefined;
+      const farBlur = isFar ? (a.q3 ? yes(a.q3) : undefined) : undefined;
+      let farFatigue;
+      if (isFar) {
+        if (a.q3 && !yes(a.q3)) farFatigue = false;
+        else if (a.q4 === "네") farFatigue = true;
+        else if (a.q4 === "아니오") farFatigue = false;
+      }
+
+      const ax1 = isFar ? axisFromSignal(farBlur, isWearing) : 2;
+      const ax2 = isNear
+        ? a.q4 === "아니오"
+          ? 3
+          : axisFromSignal(nearDiscomfort, isWearing)
+        : 2;
+      const ax3 = isNear
+        ? axisFromSignal(nearDiscomfort, isWearing)
+        : isFar
+        ? axisFromSignal(farFatigue, isWearing)
+        : 2;
+
+      const ax4 = lifestyleScoreFromQ2(a.q2);
+
+      const overall = isNear ? nearDiscomfort : isFar ? farBlur : undefined;
+      const ax5 = a.q1 === "안경 처음" ? 1 : axisFromSignal(overall, isWearing);
+
+      return { ax1, ax2, ax3, ax4, ax5 };
+    },
+
+    messages: {
+      ax1: {
+        양호: "원거리 시력이 안정적입니다",
+        보통: "가끔 흐림이 있다면 주기적으로 확인해보세요",
+        주의: "운전이나 칠판 볼 때 흐림이 있으시면 정밀검사를 추천드려요",
+      },
+      ax2: {
+        양호: "근거리 작업 시 시야가 편안합니다",
+        보통: "장시간 작업 후엔 가끔 흐릴 수 있어요",
+        주의: "근거리 작업 후 흐림이 있다면 도수 확인이 필요합니다",
+      },
+      ax3: {
+        양호: "눈의 피로도가 낮은 편입니다",
+        보통: "피로가 누적되고 있을 수 있어요",
+        주의: "눈 피로나 두통이 잦으시면 안정피로감소 기능 렌즈를 검토해드릴게요",
+      },
+      ax4: {
+        양호: "다양한 거리를 균형 있게 사용하고 계세요",
+        보통: "근거리 작업 비중이 다소 있는 편이에요",
+        주의: "근거리 작업 비중이 매우 높으시네요. 전용 렌즈로 눈의 부담을 줄여보세요",
+      },
+      ax5: {
+        양호: "현재 안경이 잘 맞고 있다면 유지하시면 됩니다",
+        보통: "다음 방문 시 적합도를 재확인해드릴게요",
+        주의: "첫 안경이시라면, 정밀검사로 정확한 도수부터 확인해요",
+      },
+    },
+  },
+
+  presby: {
+    label: "노안 (43세 이상)",
+    color: "#2E7D32",
+    initial: { q1: "", q2: "", q2b: "", q3a: "", q3b: "", q4: "" },
+
+    steps(a) {
+      const nearList = ["스마트폰 거리", "팔 거리(테블릿/책)", "책상 거리(PC 모니터)"];
+      const wearingFarList = ["거실 거리(TV)", "교실 거리(칠판, 프로젝트)", "집/사무실 내", "운전"];
+      const magnifierList = [...nearList, "거실 거리(TV)"];
+      const firstTimeQ2 = ["스마트폰, 테블릿/책", "PC 모니터, 화장대", "집/사무실 내", "운전"];
+
+      const s = [];
+      s.push({
+        key: "q1",
+        title: "현재 안경을 사용하시나요?",
+        options: [
+          { label: "안경 사용 중", value: "안경 사용 중" },
+          { label: "돋보기 사용 중(또는 구매 희망)", value: "돋보기 사용 중(또는 구매 희망)" },
+          { label: "안경 처음", value: "안경 처음" },
+        ],
+      });
+      if (!a.q1) return s;
+
+      const isWearing = a.q1 === "안경 사용 중";
+      const isMagnifier = a.q1 === "돋보기 사용 중(또는 구매 희망)";
+      const isFirstTime = a.q1 === "안경 처음";
+
+      if (isMagnifier) {
+        s.push({
+          key: "q2b",
+          title: "어떤 종류의 돋보기를 희망하세요?",
+          options: [
+            { label: "시력 검사 후 맞춤 제작", value: "시력 검사 후 맞춤 제작" },
+            { label: "만들어진 제품", value: "만들어진 제품" },
+          ],
+        });
+        if (!a.q2b) return s;
+
+        s.push({
+          key: "q2",
+          title: "필요한 작업 거리를 선택해주세요",
+          options: magnifierList.map((v) => ({ label: v, value: v })),
+        });
+        if (!a.q2) return s;
+        return s; // 돋보기 분기는 여기서 종료
+      }
+
+      const q2Options = isFirstTime ? firstTimeQ2 : [...nearList, ...wearingFarList];
+      s.push({
+        key: "q2",
+        title: "하루 중 가장 많이 보는 것은 무엇인가요?",
+        options: q2Options.map((v) => ({ label: v, value: v })),
+      });
+      if (!a.q2) return s;
+
+      if (isFirstTime) return s; // 안경 처음은 거리 선택 후 종료
+
+      // 안경 사용 중만 남음
+      const isNearGroup = nearList.includes(a.q2);
+      const isFarGroup = wearingFarList.includes(a.q2);
+
+      if (isNearGroup) {
+        s.push({
+          key: "q3a",
+          title: "가까이 볼 때 안경을 벗거나 멀리 보세요?",
+          options: [
+            { label: "예", value: "그래요(Yes)", icon: "○", iconColor: "#3182F6" },
+            { label: "아니오", value: "아니요(No)", icon: "✕", iconColor: "#E7000B" },
+          ],
+        });
+        if (!a.q3a) return s;
+        if (a.q3a === "아니요(No)") {
+          s.push({
+            key: "q4",
+            title: "기능성 안경을 사용 중이세요? (누진다초점, 기능성 등)",
+            options: [
+              { label: "예", value: "네", icon: "○", iconColor: "#3182F6" },
+              { label: "아니오", value: "아니오", icon: "✕", iconColor: "#E7000B" },
+            ],
+          });
+          if (!a.q4) return s;
+        }
+      } else if (isFarGroup) {
+        s.push({
+          key: "q3b",
+          title: "흐리게 보이나요?",
+          options: [
+            { label: "멀리 흐림", value: "멀리 흐림" },
+            { label: "가까이 흐림", value: "가까이 흐림" },
+            { label: "모두 선명", value: "모두 선명" },
+          ],
+        });
+        if (!a.q3b) return s;
+        s.push({
+          key: "q4",
+          title: "기능성 안경을 사용 중이세요? (누진다초점, 기능성 등)",
+          options: [
+            { label: "예", value: "네", icon: "○", iconColor: "#3182F6" },
+            { label: "아니오", value: "아니오", icon: "✕", iconColor: "#E7000B" },
+          ],
+        });
+        if (!a.q4) return s;
+      }
+      return s;
+    },
+
+    courseRecommend(a) {
+      if (a.q1 === "안경 처음") {
+        return "일반검사";
+      }
+      if (a.q1 === "돋보기 사용 중(또는 구매 희망)") {
+        return "일반검사";
+      }
+      // 안경 사용 중
+      const nearList = ["스마트폰 거리", "팔 거리(테블릿/책)", "책상 거리(PC 모니터)"];
+      const isNearGroup = nearList.includes(a.q2);
+      if (isNearGroup) {
+        if (a.q3a === "그래요(Yes)") return "일반검사";
+        if (a.q3a === "아니요(No)") return a.q4 === "네" ? "일반검사" : "정밀검사";
+      } else {
+        // 원거리 그룹 — Q3-B 값과 무관하게 Q4로만 판정
+        return a.q4 === "네" ? "일반검사" : "정밀검사";
+      }
+      return "일반검사";
+    },
+
+    score(a) {
+      if (a.q1 === "안경 사용 중" && a.q2 === "운전" && a.q3b === "가까이 흐림" && a.q4 === "네") {
+        return uniformScores(3);
+      }
+
+      const nearList = ["스마트폰 거리", "팔 거리(테블릿/책)", "책상 거리(PC 모니터)"];
+      const wearingFarList = ["거실 거리(TV)", "교실 거리(칠판, 프로젝트)", "집/사무실 내", "운전"];
+
+      const isWearing = a.q1 === "안경 사용 중";
+      const isMagnifier = a.q1 === "돋보기 사용 중(또는 구매 희망)";
+      const isFirstTime = a.q1 === "안경 처음";
+
+      const q2IsNearGroup = isWearing && nearList.includes(a.q2);
+      const q2IsFarGroup = isWearing && wearingFarList.includes(a.q2);
+
+      let nearDiscomfort, farBlur;
+      if (q2IsNearGroup) {
+        if (a.q3a === "그래요(Yes)") nearDiscomfort = true;
+        else if (a.q3a === "아니요(No)") nearDiscomfort = false;
+      }
+      if (q2IsFarGroup) {
+        if (a.q3b === "멀리 흐림" || a.q3b === "가까이 흐림") farBlur = true;
+        else if (a.q3b === "모두 선명") farBlur = false;
+      }
+
+      let ax1;
+      if (q2IsFarGroup) {
+        ax1 = a.q3b === "멀리 흐림" ? 1 : a.q3b === "모두 선명" ? 4 : a.q3b === "가까이 흐림" ? 3 : 2;
+      } else {
+        ax1 = 2;
+      }
+
+      let ax2;
+      if (q2IsNearGroup) {
+        ax2 = axisFromSignal(nearDiscomfort, isWearing);
+      } else if (q2IsFarGroup) {
+        ax2 = a.q3b === "가까이 흐림" ? 1 : a.q3b === "모두 선명" ? 4 : 2;
+      } else if (isMagnifier) {
+        ax2 = a.q2b === "시력 검사 후 맞춤 제작" ? 3 : a.q2b === "만들어진 제품" ? 1 : 2;
+      } else {
+        ax2 = 2;
+      }
+
+      let ax3;
+      if (q2IsNearGroup && nearDiscomfort === true) ax3 = 2;
+      else if (q2IsNearGroup && nearDiscomfort === false) ax3 = 3;
+      else if (isMagnifier && a.q2b === "시력 검사 후 맞춤 제작") ax3 = 3;
+      else ax3 = 2;
+
+      const ax4 = lifestyleScoreFromQ2(a.q2);
+
+      let ax5;
+      if (isFirstTime) ax5 = 1;
+      else if (isMagnifier) ax5 = a.q2b === "시력 검사 후 맞춤 제작" ? 3 : a.q2b === "만들어진 제품" ? 1 : 2;
+      else if (isWearing) {
+        if (a.q4 === "네") ax5 = 4;
+        else if (a.q4 === "아니오") ax5 = 2;
+        else if (q2IsNearGroup && nearDiscomfort === true) ax5 = 4;
+        else if (q2IsFarGroup) ax5 = farBlur === true ? 2 : farBlur === false ? 4 : 2;
+        else ax5 = 2;
+      } else ax5 = 2;
+
+      return { ax1, ax2, ax3, ax4, ax5 };
+    },
+
+    messages: {
+      ax1: {
+        양호: "먼 곳도 선명하게 잘 보고 계세요",
+        보통: "먼 곳은 대체로 선명한 편이에요",
+        주의: "먼 곳이 흐리게 보이신다면 원거리 도수 확인이 필요합니다",
+      },
+      ax2: {
+        양호: "가까운 거리도 선명하게 보고 계세요",
+        보통: "가까운 거리가 가끔 불편할 수 있어요",
+        주의: "가까이 볼 때 안경을 벗거나 멀리 보신다면, 노안 진행 신호일 수 있어요. 가입도 검사를 권해드립니다",
+      },
+      ax3: {
+        양호: "눈 컨디션이 양호하신 편이에요",
+        보통: "장시간 근거리 작업 후 피로가 있을 수 있어요",
+        주의: "장시간 근거리 작업 후 눈이 피곤하시다면, 안정피로 관리가 함께 필요할 수 있어요 (※ 문진에 관련 질문이 없어 추정치입니다)",
+      },
+      ax4: {
+        양호: "생활 속 근거리 사용이 적당한 편이에요",
+        보통: "근거리 작업이 일상에 어느 정도 있는 편이에요",
+        주의: "근거리 작업 비중이 높으시면, 홈피스(실내용 근거리 전용) 렌즈가 편리합니다",
+      },
+      ax5: {
+        양호: "현재 착용 중인 렌즈가 잘 맞고 있어요",
+        보통: "다음 방문 시 가입도 적합 여부를 확인해봐요",
+        주의: "돋보기가 처음이시거나 기능성 전환을 고려 중이시라면, 정밀검사로 맞춤 가입도를 찾아드릴게요",
+      },
+    },
+  },
+};
+
+// (검사 코스 추천 단계는 삭제되었습니다 — 문진 결과 확인 후 바로 안경렌즈 추천으로 이어집니다)
+
+/* ===========================================================
+   STEP 2 — 도수 기반 제품 추천
+   출처: 처방적합율 1.xlsx (어린이/젊은이/노안 각 시트)
+   구조: 근시·원시(노안은 Add) 굴절검사 값 구간 → 렌즈 인덱스/설계 결정
+         → 가격 오름차순 제품 3~4종(제품추천1~N) 매핑
+   이 데모는 각 연령군의 대표 4개(노안은 4개 가입도) 구간을 실제 제품명·가격
+   그대로 반영했습니다. 노안(43세~)의 경우 실제 원자료에 근거리 전용
+   "홈피스" 라인과, 원근 동시(누진다초점) "블랙에디션/DM1/DM2/다비젠/
+   블루젠/퓨어젠" 등 실제 제품 라인이 굴절률(1.56~1.74)별로 각각 존재하며,
+   이 데모에서는 그중 대표 라인인 블랙에디션 기준으로 반영했습니다.
+   실제 데이터는 문진 조합별로 훨씬 세분화되어 있고(어린이·젊은이 각
+   576행, 노안 약 1400행), 문진 조합에 따라 붙는 특수 태그도 15종
+   (근시억제/프리즘RX/가디언/양비/변색/개인맞춤 등)에 달합니다 —
+   프로덕션에서는 이 전체 룩업을 데이터 소스로 그대로 연결하는 것을
+   권장합니다.
+=========================================================== */
+const CHILD_TIERS = [
+  {
+    id: "t1", index: 1.56, sphLabel: "약도", sphRange: "~ -2.75D",
+    normal: { design: "비구면", products: [
+      { name: "한미MK 단초점 렌즈 1.56", price: 9900 },
+      { name: "호야 블루라이트 250 (1.56 ASP)", price: 30000 },
+      { name: "수퍼블루 1.56 ASP", price: 30000 },
+      { name: "Blue Plus UV 1.56 AS", price: 40000 },
+    ] },
+    highAstig: { design: "구면/비구면 고난시", products: [
+      { name: "수퍼블루 1.56 고난시", price: 45000 },
+      { name: "호야 블루라이트 250 고난시", price: 50000 },
+    ] },
+    farsighted: { design: "구면", products: [
+      { name: "한미MK 단초점 렌즈 1.56", price: 9900 },
+      { name: "호야 블루라이트 150 (1.56 SP)", price: 20000 },
+      { name: "수퍼블루 1.56 ASP", price: 30000 },
+      { name: "Blue Plus UV 1.56 AS", price: 40000 },
+    ] },
+  },
+  {
+    id: "t2", index: "1.60", sphLabel: "중도", sphRange: "-3.00 ~ -3.75D",
+    normal: { design: "비구면", products: [
+      { name: "한미MK 단초점 렌즈 1.60", price: 20000 },
+      { name: "호야블루라이트 500 (1.60 ASP)", price: 50000 },
+      { name: "Blue Plus UV 안전렌즈 1.60 AS", price: 60000 },
+    ] },
+    highAstig: { design: "구면/비구면 고난시", products: [
+      { name: "마이핏 양면비구면 1.60 고난시", price: 34000 },
+      { name: "수퍼블루 1.60 SP 고난시", price: 60000 },
+      { name: "호야 블루라이트 500 고난시 (1.60 ASP)", price: 70000 },
+      { name: "Blue Plus UV 안전렌즈 1.60 AS 고난시", price: 80000 },
+    ] },
+  },
+  {
+    id: "t3", index: 1.67, sphLabel: "고도", sphRange: "-4.00 ~ -5.75D",
+    normal: { design: "비구면", products: [
+      { name: "한미MK 단초점 렌즈 1.67", price: 35000 },
+      { name: "스마트 블루 1.67 ASP", price: 35000 },
+      { name: "호야 블루라이트 600 (1.67 ASP)", price: 70000 },
+      { name: "Blue Plus UV 1.67 AS", price: 80000 },
+    ] },
+    highAstig: { design: "구면/비구면 고난시", products: [
+      { name: "마이핏 양면비구면 1.60 고난시", price: 50000 },
+      { name: "호야 블루라이트 600 고난시 (1.67 ASP)", price: 90000 },
+      { name: "수퍼블루 1.74 ASP", price: 105000 },
+    ] },
+  },
+  {
+    id: "t4", index: 1.74, sphLabel: "초고도", sphRange: "-6.00D ~",
+    normal: { design: "비구면/양비", products: [
+      { name: "블루라이트 MK 1.74", price: 50000 },
+      { name: "마이핏 양비 1.74", price: 63000 },
+      { name: "수퍼블루 1.74 ASP", price: 105000 },
+    ] },
+    highAstig: { design: "비구면/양비 고난시", products: [
+      { name: "블루라이트 MK 1.74 고난시", price: 60000 },
+      { name: "마이핏 양비 1.74 고난시", price: 73000 },
+      { name: "수퍼블루 1.74 ASP 고난시", price: 135000 },
+    ] },
+  },
+];
+
+// 근시억제(근시 진행 관리) 전용 렌즈 — 원자료 "어린이(~14세)" 시트, BF~BI열("근시억제" 헤더) 기준.
+// 도수 구간(굴절률 티어)과 무관하게 모든 행에서 동일한 가격으로 반복 등장해, 특정 굴절률에 종속되지
+// 않는 별도 라인업(성장기 근시 진행 속도를 늦추는 전용 설계)으로 확인됩니다.
+// 마이오 스마트(520,000원)·스텔리스트(520,000원)는 해당 열 전체에서 가격이 일관돼 신뢰할 수 있었지만,
+// 같은 구역의 "마이브라이트 솔라"는 가격 헤더 자체가 비어 있고 값도 행마다 1원씩 증가하는 등
+// (180000, 180001, 180002…) 원자료 자체의 오류로 보여 이번 반영에서는 제외했습니다.
+// (다른 시트/파일에 등장하는 동일 항목 블록도 대조해봤으나 "마이오 스마트" 가격이 520,000/180,000으로
+// 뒤섞여 나와 신뢰할 수 없었고, 어린이 시트의 이 블록만 15행 내내 값이 흔들림 없이 일관됐습니다.)
+const CHILD_MYOPIA_CONTROL_PRODUCTS = [
+  { name: "마이오 스마트", price: 520000, tag: "근시 진행 억제 전용 렌즈" },
+  { name: "스텔리스트", price: 520000, tag: "근시 진행 억제 전용 렌즈" },
+];
+
+const YOUNG_TIERS = [
+  { id: "t1", index: 1.56, sphLabel: "약도", sphRange: "~ -2.75D",
+    normal: { design: "비구면", products: [
+      { name: "스마트 블루", price: 25000 },
+      { name: "호야 블루라이트 250", price: 25000 },
+      { name: "블루플러스(uv)안전 1.56", price: 40000 },
+    ] },
+    highAstig: { design: "구면/비구면 고난시", products: [
+      { name: "호야 블루라이트 150", price: 35000 },
+      { name: "아사히 수퍼블루 1.56", price: 45000 },
+      { name: "호야 블루라이트 250", price: 50000 },
+    ] },
+    farsighted: { design: "구면", products: [
+      { name: "블루라이트MK 1.56", price: 9900 },
+      { name: "호야 블루라이트 150", price: 20000 },
+    ] },
+  },
+  { id: "t2", index: "1.60", sphLabel: "중도", sphRange: "-3.00 ~ -3.75D",
+    normal: { design: "비구면", products: [
+      { name: "스마트 블루 1.60", price: 25000 },
+      { name: "호야블루라이트 500", price: 50000 },
+      { name: "블루플러스(uv)안전 1.60", price: 60000 },
+    ] },
+    highAstig: { design: "구면/비구면 고난시", products: [
+      { name: "블루라이트MK 1.60", price: 25000 },
+      { name: "스마트블루 1.60", price: 35000 },
+      { name: "아사히 수퍼블루", price: 60000 },
+    ] },
+  },
+  { id: "t3", index: 1.67, sphLabel: "고도", sphRange: "-4.00 ~ -5.75D",
+    normal: { design: "비구면", products: [
+      { name: "스마트 블루 1.67", price: 35000 },
+      { name: "호야 블루라이트 600", price: 70000 },
+      { name: "블루플러스(uv)안전 1.67", price: 80000 },
+    ] },
+    highAstig: { design: "구면/비구면 고난시", products: [
+      { name: "스마트 블루 1.67", price: 45000 },
+      { name: "호야 블루라이트 600", price: 90000 },
+    ] },
+  },
+  { id: "t4", index: 1.74, sphLabel: "초고도", sphRange: "-6.00D ~",
+    normal: { design: "비구면/양비", products: [
+      { name: "블루라이트 MK 1.74", price: 50000 },
+      { name: "수퍼블루 1.74", price: 100000 },
+    ] },
+    highAstig: { design: "비구면/양비 고난시", products: [
+      { name: "블루라이트 MK 1.74 고난시", price: 60000 },
+      { name: "마이핏 양비 1.74", price: 73000 },
+      { name: "아사히 수퍼블루 1.74", price: 130000 },
+    ] },
+  },
+];
+
+const PRESBY_ADD_TIERS = [
+  { id: "a1", addLabel: "초기", addRange: "+1.00 ~ +1.25D" },
+  { id: "a2", addLabel: "중기", addRange: "+1.50 ~ +1.75D" },
+  { id: "a3", addLabel: "진행", addRange: "+2.00 ~ +2.25D" },
+  { id: "a4", addLabel: "심화", addRange: "+2.50D ~" },
+];
+// 근거리 전용(돋보기) 라인업 — 난시 정도별 3단 제품 사다리 (원자료 그대로)
+const PRESBY_HOMEPIECE_PRODUCTS = {
+  none: { design: "근거리 전용 · 구면", products: [
+    { name: "홈피스 돋보기 1.56 2M (RX)", price: 79000, tag: "실내 근거리 전용" },
+    { name: "스마트 홈피스 1.56 (B타입)", price: 79000, tag: "실내 근거리 전용" },
+    { name: "워크홈피스 1.50", price: 79000, tag: "실내 근거리 전용" },
+  ] },
+  mid: { design: "근거리 전용 · 비구면", products: [
+    { name: "홈피스 돋보기 1.56 2M (RX)", price: 79000, tag: "실내 근거리 전용" },
+    { name: "워크홈피스 1.50", price: 79000, tag: "실내 근거리 전용" },
+    { name: "인디비주얼 홈피스 1.50 (C타입)", price: 129000, tag: "고정밀 맞춤 설계" },
+  ] },
+  high: { design: "근거리 전용 · 고난시", products: [
+    { name: "워크홈피스 1.50", price: 79000, tag: "실내 근거리 전용" },
+    { name: "인디비주얼 홈피스 1.50 (C타입)", price: 129000, tag: "고정밀 맞춤 설계" },
+  ] },
+};
+
+// 원근 동시(누진다초점) 라인업 — 굴절률별 대표 상품, 블랙에디션이 대표 라인
+const PRESBY_PROGRESSIVE_PRODUCTS = {
+  "1.56": { design: "원근 동시(누진) · 굴절률 1.56", products: [
+    { name: "블랙에디션 1 1.56", price: 99000, tag: "원근 동시(누진) 대표 라인업" },
+    { name: "DM1 1.55", price: 99000, tag: "원근 동시(누진)" },
+    { name: "블랙에디션 1 1.56 변색", price: 150000, tag: "원근 동시(누진) · 야외 겸용 변색" },
+  ] },
+  "1.60": { design: "원근 동시(누진) · 굴절률 1.60", products: [
+    { name: "블랙에디션 1 1.60", price: 140000, tag: "원근 동시(누진) 대표 라인업" },
+    { name: "DM1 1.60", price: 150000, tag: "원근 동시(누진)" },
+    { name: "블랙에디션 1 1.60 변색", price: 190000, tag: "원근 동시(누진) · 야외 겸용 변색" },
+  ] },
+  "1.67": { design: "원근 동시(누진) · 굴절률 1.67", products: [
+    { name: "블랙에디션 1 1.67", price: 180000, tag: "원근 동시(누진) 대표 라인업" },
+    { name: "DM1 1.67", price: 250000, tag: "원근 동시(누진)" },
+    { name: "블랙에디션 1 1.67 변색", price: 280000, tag: "원근 동시(누진) · 야외 겸용 변색" },
+  ] },
+  "1.74": { design: "원근 동시(누진) · 굴절률 1.74", products: [
+    { name: "블랙에디션 1 1.74", price: 260000, tag: "원근 동시(누진) 대표 라인업" },
+    { name: "블루젠 맥스 1.74(+1.00)", price: 299000, tag: "원근 동시(누진)" },
+    { name: "블랙에디션 1 1.74 변색", price: 280000, tag: "원근 동시(누진) · 야외 겸용 변색" },
+  ] },
+};
+
+// 데모용 "기존 처방·구매 이력" — 실제 서비스에서는 고객 DB(POS)에서 최근 안경렌즈 구매 도수를
+// 자동 조회한 결과가 들어갈 자리입니다. 안경렌즈 추천 CTA를 누르면 이 데이터의 존재 여부만으로
+// (고객에게 묻지 않고) CASE A(구매이력 있음) / CASE B(구매이력 없음) 분기를 자동 결정합니다.
+// child는 "처음 안경을 맞추는 손님" 시나리오를 보여주기 위해 이력 없음(null)으로 두었습니다.
+const MOCK_RX_RECORD = {
+  child: null,
+  young: { date: "2026-05-18", summary: "근시 중도 · 난시 없음", lastProduct: "호야블루라이트 500 (1.60 ASP)",
+    rx: { sphType: "근시", tierId: "t2", astig: "none" } },
+  presby: { date: "2026-02-11", summary: "가입도 중기 · 난시 중등도", lastProduct: "워크홈피스 1.50",
+    rx: { addId: "a2", astig: "mid", lensType: "homepiece", index: "1.56" } },
+};
+
+function resolveChildYoungTiers(groupKey) {
+  return groupKey === "child" ? CHILD_TIERS : YOUNG_TIERS;
+}
+
+function resolveProductSet(groupKey, rx) {
+  if (groupKey === "presby") {
+    const addTier = PRESBY_ADD_TIERS.find((t) => t.id === rx.addId) || PRESBY_ADD_TIERS[0];
+    if (rx.lensType === "progressive") {
+      const bucket = PRESBY_PROGRESSIVE_PRODUCTS[rx.index] || PRESBY_PROGRESSIVE_PRODUCTS["1.56"];
+      return { design: bucket.design, products: bucket.products, tierLabel: `가입도 ${addTier.addLabel} (${addTier.addRange})` };
+    }
+    const bucket = PRESBY_HOMEPIECE_PRODUCTS[rx.astig] || PRESBY_HOMEPIECE_PRODUCTS.none;
+    return { design: bucket.design, products: bucket.products, tierLabel: `가입도 ${addTier.addLabel} (${addTier.addRange})` };
+  }
+  const tiers = resolveChildYoungTiers(groupKey);
+  const tier = tiers.find((t) => t.id === rx.tierId) || tiers[0];
+  if (rx.sphType === "원시" && tier.farsighted) {
+    return { design: tier.farsighted.design, products: tier.farsighted.products, tierLabel: `원시 · 굴절률 ${tier.index}` };
+  }
+  const bucket = rx.astig === "high" ? tier.highAstig : tier.normal;
+  return { design: bucket.design, products: bucket.products, tierLabel: `근시 ${tier.sphLabel} (${tier.sphRange}) · 굴절률 ${tier.index}` };
+}
+
+// 사전 문진 5축 결과를 바탕으로 특수 옵션 태그 추천 (엑셀의 15종 태그를 대표 케이스로 단순화)
+function computeFeatureTags(groupKey, scores, answers) {
+  const t3 = tierOf(scores.ax3);
+  const t4 = tierOf(scores.ax4);
+  const tags = [];
+  if (groupKey === "presby") {
+    if (t4 === "주의") {
+      tags.push({ key: "homepiece", label: "홈피스 (실내 근거리 전용)", reason: "근거리 작업이 많아 실내 전용 렌즈가 잘 맞아요" });
+    }
+    if (t3 === "주의") {
+      tags.push({ key: "fatigue", label: "안정피로 관리", reason: "장시간 근거리 작업 후 피로 신호가 있어요" });
+    }
+  } else {
+    if (t3 === "주의" || t4 === "주의") {
+      tags.push({ key: "bluecut", label: "블루라이트 차단", reason: "블루라이트 차단 렌즈가 도움이 될 수 있어요" });
+    }
+    if (groupKey === "child" && answers.q1 === "처음" && (t3 === "주의" || t4 === "주의")) {
+      tags.push({ key: "myopia", label: "근시 진행 관리", reason: "근시 진행을 늦추는 관리 렌즈를 권해요" });
+    }
+  }
+  return tags;
+}
+
+// 도수를 몰라도 되는 "사전 추천" 화면에서 보여줄 대표 상품 묶음을 문진 태그로 고른다.
+// (실제 인덱스/가입도는 검사 후 확정되므로, 원근 동시·근거리 전용 두 라인의 대표 상품을 함께 보여준다.
+//  예: 블랙에디션 1(원근 동시) · 홈피스 돋보기(근거리 전용) 등)
+function pickBrowseBucket(groupKey, tags) {
+  if (groupKey === "presby") {
+    const products = [
+      ...PRESBY_PROGRESSIVE_PRODUCTS["1.56"].products,
+      ...PRESBY_HOMEPIECE_PRODUCTS.mid.products,
+    ];
+    return { design: "대표 라인업 · 원근 동시(누진) & 근거리 전용", products };
+  }
+  return resolveChildYoungTiers(groupKey)[0].normal; // 대표 진입 구간(약도) 라인업
+}
+
+// 위 라인업 중 어떤 상품에 "추천" 배지를 붙일지, 문진 태그를 근거로 고른다.
+function pickBrowseHighlightIndex(sortedProducts, groupKey, tags) {
+  if (groupKey === "presby" && tags.some((t) => t.key === "fatigue")) {
+    const idx = sortedProducts.findIndex((p) => p.name.includes("블랙에디션") && !p.name.includes("변색"));
+    if (idx !== -1) return idx;
+  }
+  if (groupKey === "presby" && tags.some((t) => t.key === "homepiece")) {
+    const idx = sortedProducts.findIndex((p) => p.tag && p.tag.includes("근거리 전용"));
+    if (idx !== -1) return idx;
+  }
+  if (groupKey !== "presby" && tags.some((t) => t.key === "bluecut")) {
+    const idx = sortedProducts.findIndex((p) => p.name.includes("블루") || /blue/i.test(p.name));
+    if (idx !== -1) return idx;
+  }
+  let minIdx = 0;
+  sortedProducts.forEach((p, i) => {
+    if (p.price < sortedProducts[minIdx].price) minIdx = i;
+  });
+  return minIdx;
+}
+
+// CASE A(구매이력 있음)일 때만 카드에 "굴절률 X.XX"를 표기한다 — 근거 있는 값이 있을 때만 노출하고,
+// 이력이 없는 CASE B에서는 특정 굴절률이 확정된 것처럼 보이지 않도록 아예 표기하지 않는다.
+function resolveCaseAIndexLabel(groupKey, rx) {
+  if (groupKey === "presby") {
+    return rx.lensType === "progressive" && rx.index ? rx.index : null;
+  }
+  const tier = resolveChildYoungTiers(groupKey).find((t) => t.id === rx.tierId);
+  return tier ? String(tier.index) : null;
+}
+
+// 상품 카드마다 "왜 추천되었는지"를 한 줄로 설명한다. 문진 태그와 매칭되면 그 근거를 그대로 쓰고,
+// 목록의 대표(추천) 상품에는 케이스별 기본 문구를 붙인다 — 데이터에 없는 이유를 새로 지어내지 않는다.
+function computeProductReason(product, { groupKey, tags, hasHistory, isTopPick }) {
+  const matchedTag = tags.find((t) => {
+    if (t.key === "bluecut" || t.key === "myopia") {
+      return /블루/.test(product.name) || /blue/i.test(product.name);
+    }
+    if (t.key === "homepiece") {
+      return product.tag && product.tag.includes("근거리 전용");
+    }
+    if (t.key === "fatigue") {
+      return product.name.includes("블랙에디션") && !product.name.includes("변색");
+    }
+    return false;
+  });
+  if (matchedTag) return matchedTag.reason;
+  if (isTopPick) {
+    return hasHistory ? "현재 도수에 적합한 굴절률이에요" : "문진 결과를 바탕으로 가장 먼저 안내드리는 상품이에요";
+  }
+  return null;
+}
+
+/* ---------------------------------------------------------
+   상품 계열(같은 렌즈 라인이 굴절률별로 이름 표기만 조금씩 달라지는 경우) 매핑
+   - 이름 표기가 굴절률마다 제각각이라(공백/접미사 등) 느슨한 유추 대신
+     정확한 이름 패턴으로만 매칭하고, 실제 데이터(CHILD/YOUNG/PRESBY 원자료)에서
+     매칭된 굴절률이 2개 이상 확인될 때만 "두께별 가격" 토글을 노출합니다.
+   - 굴절률/가격은 전부 원자료에서 그대로 읽어오며 새로 만들어내는 값은 없습니다.
+--------------------------------------------------------- */
+const PRODUCT_FAMILY_PATTERNS = {
+  child: [/^한미MK 단초점 렌즈/, /^호야\s?블루라이트\s?\d/, /^수퍼블루/, /^Blue Plus UV/],
+  young: [/^스마트\s?블루/, /^호야\s?블루라이트/, /^블루플러스\(uv\)안전/],
+  presby: [/^블랙에디션 1 [\d.]+ 변색$/, /^블랙에디션 1 [\d.]+$/, /^DM1\b/],
+};
+
+function buildProductLadders() {
+  // child/young은 원자료(엑셀) 그대로 굴절률 구간마다 근시 도수(sphRange)가 정해져 있어,
+  // 그 값을 함께 들고 다녀서 두께별 가격 목록에 "몇 도수부터 이 두께를 쓰는지"도 보여준다.
+  // presby는 도수가 아니라 가입도(Add) 기준이라 sphRange 개념이 없으므로 undefined로 둔다.
+  const collectFromTiers = (tiers) => {
+    const flat = [];
+    tiers.forEach((t) => {
+      const products = (t.normal && t.normal.products) || [];
+      products.forEach((p) =>
+        flat.push({ index: Number(t.index), name: p.name, price: p.price, sphRange: t.sphRange })
+      );
+    });
+    return flat;
+  };
+  const collectPresby = () => {
+    const flat = [];
+    Object.keys(PRESBY_PROGRESSIVE_PRODUCTS).forEach((idxKey) => {
+      PRESBY_PROGRESSIVE_PRODUCTS[idxKey].products.forEach((p) => {
+        flat.push({ index: Number(idxKey), name: p.name, price: p.price, sphRange: undefined });
+      });
+    });
+    return flat;
+  };
+
+  const flatByGroup = { child: collectFromTiers(CHILD_TIERS), young: collectFromTiers(YOUNG_TIERS), presby: collectPresby() };
+  const ladders = { child: [], young: [], presby: [] };
+
+  Object.keys(PRODUCT_FAMILY_PATTERNS).forEach((groupKey) => {
+    PRODUCT_FAMILY_PATTERNS[groupKey].forEach((re) => {
+      const points = flatByGroup[groupKey]
+        .filter((p) => re.test(p.name))
+        .map((p) => ({ index: p.index, price: p.price, name: p.name, sphRange: p.sphRange }))
+        .sort((a, b) => a.index - b.index);
+      if (points.length > 1) {
+        ladders[groupKey].push({ pattern: re, points });
+      }
+    });
+  });
+  return ladders;
+}
+const PRODUCT_LADDERS = buildProductLadders();
+
+function findProductLadder(groupKey, productName) {
+  const list = PRODUCT_LADDERS[groupKey] || [];
+  const found = list.find((l) => l.pattern.test(productName));
+  return found ? found.points : null;
+}
+
+/* ---------------------------------------------------------
+   UI 부품
+--------------------------------------------------------- */
+function ProgressHeader({ stepNum, stepTotal, stepLabel }) {
+  const pct = Math.min(100, Math.round((stepNum / stepTotal) * 100));
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <div
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: "50%",
+            background: "linear-gradient(135deg,#5B9DF9,#3182F6)",
+            boxShadow: "0 2px 6px rgba(49,130,246,0.35)",
+            color: "#fff",
+            fontSize: 12,
+            fontWeight: 800,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          D
+        </div>
+        <span style={{ fontSize: 14, fontWeight: 700, color: "#191F28" }}>다비치안경 · 비전체크</span>
+      </div>
+      <div style={{ height: 7, background: "#EAECF0", borderRadius: 999, overflow: "hidden" }}>
+        <div
+          style={{
+            height: "100%",
+            width: `${pct}%`,
+            background: "linear-gradient(90deg,#8FB8FA,#3182F6)",
+            borderRadius: 999,
+            transition: "width .25s",
+          }}
+        />
+      </div>
+      <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 7, fontWeight: 500 }}>
+        {stepNum} / {stepTotal} · {stepLabel}
+      </div>
+    </div>
+  );
+}
+
+function StepQuestion({ title, options, onSelect }) {
+  return (
+    <div style={{ padding: "12px 0" }}>
+      <div style={{ fontSize: 19, fontWeight: 700, color: "#191F28", marginBottom: 22, lineHeight: 1.4 }}>
+        {title}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => onSelect(opt.value)}
+            style={{
+              padding: "15px 16px",
+              borderRadius: 14,
+              border: "1.5px solid #E9EBEF",
+              background: "#fff",
+              color: "#191F28",
+              fontSize: 14.5,
+              fontWeight: 600,
+              textAlign: "left",
+              cursor: "pointer",
+              transition: "all .15s",
+              boxShadow: "0 1px 2px rgba(16,24,40,0.03)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "#3182F6";
+              e.currentTarget.style.boxShadow = "0 2px 8px rgba(49,130,246,0.12)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "#E9EBEF";
+              e.currentTarget.style.boxShadow = "0 1px 2px rgba(16,24,40,0.03)";
+            }}
+          >
+            {opt.icon && (
+              <span style={{ color: opt.iconColor, fontWeight: 800, marginRight: 8 }}>{opt.icon}</span>
+            )}
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// 축별 점수 요약 표 — 강조된 칸의 색을 아래 AxisRow 카드와 동일한 TIER_COLOR로 맞춰서
+// 표를 보는 순간 어떤 항목이 양호/보통/주의인지 색으로 바로 이어지도록 한다.
+function ScoreTable({ axes, scores }) {
+  const cols = [1, 2, 3, 4, 5];
+  return (
+    <div
+      style={{
+        background: "#F9FAFB",
+        border: "1px solid #EEF0F3",
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 20,
+      }}
+    >
+      <div style={{ fontSize: 11.5, color: "#8B95A1", marginBottom: 10, lineHeight: 1.4 }}>
+        1에 가까울수록 검사가 필요하고, 5에 가까울수록 양호한 상태입니다
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+        <colgroup>
+          <col style={{ width: "26%" }} />
+          {cols.map((c) => (
+            <col key={c} style={{ width: "14.8%" }} />
+          ))}
+        </colgroup>
+        <thead>
+          <tr>
+            <th></th>
+            {cols.map((c) => (
+              <th key={c} style={{ padding: "0 4px 6px", textAlign: "center" }}>
+                <span style={{ fontSize: 12.5, color: "#9CA3AF", fontWeight: 600 }}>{c}</span>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {axes.map((ax, i) => {
+            const raw = scores[ax.key];
+            const v = Math.round(raw);
+            const tier = tierOf(raw);
+            const tc = TIER_COLOR[tier];
+            const isLifestyle = ax.key === "ax4";
+            return (
+              <React.Fragment key={ax.key}>
+                <tr>
+                  <td
+                    style={{
+                      fontSize: 13.5,
+                      fontWeight: 600,
+                      color: "#191F28",
+                      padding: "10px 8px 10px 10px",
+                      borderTop: i === 0 ? "none" : "1px solid #F1F3F5",
+                      borderLeft: `3px solid ${tc.fg}`,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {ax.label}
+                  </td>
+                  {cols.map((c) => (
+                    <td key={c} style={{ padding: 4, borderTop: i === 0 ? "none" : "1px solid #F1F3F5" }}>
+                      <div
+                        style={{
+                          height: 26,
+                          borderRadius: 6,
+                          border: c === v ? "none" : "1px solid #E5E7EB",
+                          background: c === v ? tc.fg : "#F2F4F6",
+                          transition: "background .2s",
+                        }}
+                      />
+                    </td>
+                  ))}
+                </tr>
+                {isLifestyle && (
+                  <tr>
+                    <td></td>
+                    <td style={{ textAlign: "center" }}>
+                      <span style={{ fontSize: 10, color: "#9CA3AF", whiteSpace: "nowrap" }}>가까운 거리 위주</span>
+                    </td>
+                    <td></td>
+                    <td style={{ textAlign: "center" }}>
+                      <span style={{ fontSize: 10, color: "#9CA3AF", whiteSpace: "nowrap" }}>균형</span>
+                    </td>
+                    <td></td>
+                    <td style={{ textAlign: "center" }}>
+                      <span style={{ fontSize: 10, color: "#9CA3AF", whiteSpace: "nowrap" }}>먼거리 위주</span>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AxisRow({ axisLabel, score, tier, message }) {
+  const c = TIER_COLOR[tier];
+  return (
+    <div style={{ background: c.bg, borderRadius: 14, padding: "12px 14px", marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        <span
+          style={{
+            background: c.fg,
+            color: "#fff",
+            fontSize: 11,
+            fontWeight: 700,
+            borderRadius: 12,
+            padding: "3px 10px",
+          }}
+        >
+          {tier}
+        </span>
+        <span style={{ fontWeight: 700, fontSize: 14, color: "#191F28" }}>{axisLabel}</span>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: "#9CA3AF" }}>{score} / 5</span>
+      </div>
+      <div style={{ fontSize: 12.5, color: "#374151", lineHeight: 1.5 }}>{message}</div>
+    </div>
+  );
+}
+
+function NavButtons({ onBack, backDisabled, backLabel = "이전", primaryLabel, onPrimary }) {
+  return (
+    <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+      <button
+        onClick={onBack}
+        disabled={backDisabled}
+        style={{
+          flex: "0 0 110px",
+          padding: "14px 0",
+          borderRadius: 14,
+          border: "none",
+          background: "#EEF1F4",
+          color: backDisabled ? "#C1C7CF" : "#374151",
+          fontWeight: 700,
+          fontSize: 14,
+          cursor: backDisabled ? "default" : "pointer",
+        }}
+      >
+        {backLabel}
+      </button>
+      <button
+        onClick={onPrimary}
+        style={{
+          flex: 1,
+          padding: "14px 0",
+          borderRadius: 14,
+          border: "none",
+          background: "#3182F6",
+          color: "#fff",
+          fontWeight: 700,
+          fontSize: 14,
+          cursor: "pointer",
+          boxShadow: "0 4px 12px rgba(49,130,246,0.28)",
+        }}
+      >
+        {primaryLabel}
+      </button>
+    </div>
+  );
+}
+
+function TagChip({ label }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        background: "#F2F4F6",
+        color: "#4E5968",
+        fontSize: 11.5,
+        fontWeight: 700,
+        borderRadius: 20,
+        padding: "4px 12px",
+        flexShrink: 0,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+// 문진 기반 추천 옵션 — 박스형 카드 대신 가벼운 한 줄짜리 스트립으로 표시해 화면 텍스트량을 줄인다.
+function TagOptionsStrip({ tags }) {
+  if (!tags || tags.length === 0) return null;
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {tags.map((t) => (
+        <div key={t.key} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
+          <TagChip label={t.label} />
+          <span style={{ fontSize: 11.5, color: "#8B95A1", lineHeight: 1.4 }}>{t.reason}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// 추천 화면에서, 지금 보이는 상품이 확정이 아니라는 점을 상품 목록보다 먼저 눈에 띄게 알려준다 —
+// 기성품처럼 "이 가격에 이 제품"으로 바로 살 수 있다는 오해를 막기 위함.
+// CASE A(구매이력 있음)/CASE B(구매이력 없음)에 따라 문구를 다르게 해, 없는 도수를 확정처럼
+// 말하지 않도록 한다.
+function PreExamNotice({ hasHistory = false }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 8,
+        alignItems: "flex-start",
+        background: "#FFF8EB",
+        border: "1px solid #FCE9C3",
+        borderRadius: 14,
+        padding: "12px 14px",
+        marginBottom: 16,
+      }}
+    >
+      <span style={{ fontSize: 14, lineHeight: 1.4 }}>👓</span>
+      <span style={{ fontSize: 12, color: "#8A6D1F", lineHeight: 1.55 }}>
+        {hasHistory
+          ? "최근 구매 도수를 기준으로 안내드리는 참고 정보예요. 매장에서 검사와 안경사 상담을 받으면 실제 추천 렌즈와 가격이 달라질 수 있어요."
+          : "정확한 도수 확인 전, 문진 결과를 기준으로 안내드리는 참고 정보예요. 매장에서 검사와 안경사 상담을 받으면 실제 추천 렌즈와 가격이 달라질 수 있어요."}
+      </span>
+    </div>
+  );
+}
+
+// 마켓에 등록된 상품 상세 페이지 URL (데모: 상품명 기준 검색 결과로 연결.
+// 실제 서비스에서는 상품별로 등록된 마켓 SKU/상세페이지 URL을 그대로 매핑합니다)
+// 단, 고난시 특수 사양이나 매장 전용 대체 브랜드(DM1/DM2/AD4, 블루젠 맥스 등)처럼
+// 마켓에 별도 상품페이지가 등록되어 있지 않은 상품도 실제로 존재해, 그 케이스도 섞어서 보여줍니다.
+const NO_MARKET_PAGE_PATTERNS = [/고난시/, /^DM1\b/, /^DM2\b/, /^AD4\b/, /블루젠 맥스/];
+function productMarketUrl(product) {
+  if (!product || !product.name) return null;
+  if (NO_MARKET_PAGE_PATTERNS.some((re) => re.test(product.name))) return null;
+  return `https://www.davichmarket.com/search?keyword=${encodeURIComponent(product.name)}`;
+}
+
+function ChevronRightIcon({ size = 13, color = "currentColor" }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      style={{ display: "inline-block", verticalAlign: "middle", flexShrink: 0 }}
+    >
+      <path
+        d="M9 5l7 7-7 7"
+        stroke={color}
+        strokeWidth={2.6}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// 굴절률 1.56/1.60/1.67/1.74 → 렌즈 두께 단계 1~4 (숫자가 커질수록 더 얇음).
+// 실제 데이터에 존재하는 4개 값만 다루므로 정확한 매핑 테이블로 처리한다.
+const REFRACTIVE_INDEX_LEVEL = { "1.56": 1, "1.60": 2, "1.67": 3, "1.74": 4 };
+function refractiveIndexLevel(index) {
+  return REFRACTIVE_INDEX_LEVEL[index.toFixed(2)] || 1;
+}
+
+// 굴절률별 렌즈 단면 아이콘 — 단계가 높을수록(=얇을수록) 곡률(bulge)을 줄여서
+// "숫자가 커질수록 렌즈가 더 얇아진다"는 감각을 아주 작은 자리에서도 바로 느끼게 한다.
+function LensThicknessIcon({ level = 1, size = 16 }) {
+  // 근시(오목) 렌즈 단면: 위아래는 두껍고 가운데는 얇게 눌린 모양 — 굴절률(level)이 높을수록
+  // 위아래 두께(edgeGap) 자체가 줄어들어 렌즈 전체가 더 얇아 보이도록 한다.
+  const lv = Math.min(4, Math.max(1, level));
+  const h = size * 1.35;
+  const edgeGap = size * [0.62, 0.5, 0.4, 0.3][lv - 1];
+  const bulgeOuter = size * 0.06;
+  const waist = size * 0.09;
+  const leftX = (size - edgeGap) / 2;
+  const rightX = leftX + edgeGap;
+  const topY = 1;
+  const bottomY = h - 1;
+  const midTopY = h * 0.3;
+  const midBottomY = h * 0.7;
+  const path = `M ${leftX} ${topY}
+    C ${leftX - bulgeOuter} ${midTopY}, ${leftX - bulgeOuter} ${midBottomY}, ${leftX} ${bottomY}
+    L ${rightX} ${bottomY}
+    C ${leftX + waist} ${midBottomY}, ${leftX + waist} ${midTopY}, ${rightX} ${topY}
+    Z`;
+  return (
+    <svg width={size} height={h} viewBox={`0 0 ${size} ${h}`} style={{ display: "inline-block", flexShrink: 0 }}>
+      <path d={path} fill="#7EC1EE" stroke="#4A9FDE" strokeWidth="0.75" />
+    </svg>
+  );
+}
+
+function ProductLadderCard({ product, recommended, groupKey, showCurrent = true, reason = null, indexLabel = null }) {
+  const marketUrl = productMarketUrl(product);
+  const ladder = groupKey ? findProductLadder(groupKey, product.name) : null;
+  const isExpandable = !!ladder;
+  const [expanded, setExpanded] = useState(false);
+  const minPrice = isExpandable ? Math.min(...ladder.map((pt) => pt.price)) : null;
+  // 도수(현재 굴절률)가 확정된 경우(showCurrent)에는 "가장 싼 두께 기준 ~원" 대신,
+  // 실제로 이 고객에게 해당하는 두께(product 자체)의 가격을 대표로 보여준다.
+  // 도수가 없는 경우(사전 추천)에는 여러 두께 중 가장 저렴한 값을 "~원"으로 보여준다.
+  const headerPrice = isExpandable && showCurrent ? product.price : minPrice;
+  const headerPriceIsRange = isExpandable && !showCurrent;
+
+  return (
+    <div
+      style={{
+        border: recommended ? "1px solid #CFE0FB" : "1px solid #EEF0F3",
+        borderRadius: 16,
+        padding: "14px 16px",
+        marginBottom: 10,
+        background: recommended ? "#F7FAFF" : "#fff",
+        boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
+      }}
+    >
+      {/* 카드 본문은 정보 표시만 하며 클릭 동작이 없다 — 실제 클릭 가능한 요소는 가격(두께별 가격이 있을 때만
+          토글 버튼이 됨)과 아래 "상품 보러가기"뿐. 두 버튼이 항상 같은 자리(가격=헤더 우측, 링크=푸터 우측)에
+          있도록 해서 카드마다 버튼 위치가 달라 보이지 않게 한다.
+          추천 카드는 "선택됨"처럼 보이지 않도록 굵은 테두리 대신 옅은 배경 톤 + 배지로만 구분한다. */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div>
+          {recommended && (
+            <span
+              style={{
+                display: "inline-block",
+                background: "#191F28",
+                color: "#fff",
+                fontSize: 10.5,
+                fontWeight: 700,
+                borderRadius: 10,
+                padding: "2px 10px",
+                marginBottom: 6,
+              }}
+            >
+              기본 추천
+            </span>
+          )}
+          <div style={{ fontSize: 14.5, fontWeight: 700, color: "#191F28" }}>{product.name}</div>
+          {(product.tag || indexLabel) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+              {product.tag && <span style={{ fontSize: 11, color: "#6B7280" }}>{product.tag}</span>}
+              {indexLabel && (
+                <span
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    color: "#3182F6",
+                    background: "#EEF3FF",
+                    borderRadius: 8,
+                    padding: "1px 7px",
+                  }}
+                >
+                  굴절률 {indexLabel}
+                </span>
+              )}
+            </div>
+          )}
+          {reason && (
+            <div style={{ fontSize: 11.5, color: "#8B95A1", marginTop: 4, lineHeight: 1.4 }}>💡 {reason}</div>
+          )}
+        </div>
+        {isExpandable ? (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 3,
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ fontSize: 15, fontWeight: 800, color: "#191F28", whiteSpace: "nowrap" }}>
+              {headerPrice.toLocaleString()}원{headerPriceIsRange ? "~" : ""}
+            </span>
+            <span
+              style={{
+                display: "inline-flex",
+                transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+                transition: "transform .15s",
+              }}
+            >
+              <ChevronRightIcon size={12} color="#9CA3AF" />
+            </span>
+          </button>
+        ) : (
+          <div style={{ fontSize: 15, fontWeight: 800, color: "#191F28", whiteSpace: "nowrap", flexShrink: 0 }}>
+            {product.price.toLocaleString()}원
+          </div>
+        )}
+      </div>
+
+      {isExpandable && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateRows: expanded ? "1fr" : "0fr",
+            marginTop: expanded ? 10 : 0,
+            transition:
+              "grid-template-rows 0.32s cubic-bezier(0.16, 1, 0.3, 1), margin-top 0.32s cubic-bezier(0.16, 1, 0.3, 1)",
+          }}
+        >
+          <div style={{ overflow: "hidden", minHeight: 0 }}>
+            <div
+              style={{
+                paddingTop: 10,
+                borderTop: "1px solid #F1F3F5",
+                opacity: expanded ? 1 : 0,
+                transition: expanded ? "opacity 0.28s ease 0.06s" : "opacity 0.12s ease",
+              }}
+            >
+              {ladder.map((pt) => {
+                const isCurrent = showCurrent && pt.name === product.name;
+                return (
+                  <div
+                    key={pt.name}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "7px 8px",
+                      borderRadius: 10,
+                      background: isCurrent ? "#F2F4F6" : "transparent",
+                    }}
+                  >
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <LensThicknessIcon level={refractiveIndexLevel(pt.index)} size={15} />
+                      <span style={{ display: "flex", flexDirection: "column" }}>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span
+                            style={{
+                              fontSize: 12.5,
+                              fontWeight: isCurrent ? 700 : 500,
+                              color: isCurrent ? "#191F28" : "#6B7280",
+                            }}
+                          >
+                            {pt.index.toFixed(2)}
+                          </span>
+                          {isCurrent && (
+                            <span
+                              style={{
+                                fontSize: 9.5,
+                                fontWeight: 700,
+                                color: "#fff",
+                                background: "#191F28",
+                                borderRadius: 8,
+                                padding: "1px 6px",
+                              }}
+                            >
+                              현재
+                            </span>
+                          )}
+                        </span>
+                        {pt.sphRange && (
+                          <span style={{ fontSize: 10, color: "#9CA3AF", marginTop: 1 }}>
+                            근시 {pt.sphRange}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 12.5,
+                        fontWeight: isCurrent ? 800 : 600,
+                        color: isCurrent ? "#191F28" : "#6B7280",
+                      }}
+                    >
+                      {pt.price.toLocaleString()}원
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {marketUrl && (
+        <div
+          style={{
+            marginTop: 10,
+            paddingTop: 10,
+            borderTop: "1px solid #F1F3F5",
+            textAlign: "right",
+          }}
+        >
+          <button
+            onClick={() => window.open(marketUrl, "_blank", "noopener,noreferrer")}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              color: "#3182F6",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 2,
+            }}
+          >
+            상품 보러가기
+            <ChevronRightIcon size={13} color="#3182F6" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
+   STEP 2 화면 — 나에게 맞는 안경렌즈 추천
+   (구매이력 유무는 고객에게 묻지 않고 시스템이 자동 조회해 CASE A/B를 결정한다.
+    이 컴포넌트는 그 결과(hasHistory)만 받아 같은 UI로 렌더링하고, 추천 근거 문구와
+    카드별 정보(굴절률 표기 여부·추천 이유)만 케이스에 따라 달리 보여준다.)
+--------------------------------------------------------- */
+function LensRecommendation({ groupKey, answers, scores, rx, hasHistory, onBack, onRestart }) {
+  const tags = useMemo(() => computeFeatureTags(groupKey, scores, answers), [groupKey, scores, answers]);
+
+  let sorted, design, tierLabel, indexLabel, highlightIdx;
+  if (hasHistory) {
+    const resolved = resolveProductSet(groupKey, rx);
+    sorted = [...resolved.products].sort((a, b) => a.price - b.price);
+    design = resolved.design;
+    tierLabel = resolved.tierLabel;
+    indexLabel = resolveCaseAIndexLabel(groupKey, rx);
+    highlightIdx = 0; // CASE A: 최근 구매 도수 기준 상품군에서 가장 저렴한 것을 대표로 보여준다
+  } else {
+    const bucket = pickBrowseBucket(groupKey, tags);
+    sorted = [...bucket.products].sort((a, b) => a.price - b.price);
+    design = bucket.design;
+    tierLabel = null;
+    indexLabel = null;
+    highlightIdx = pickBrowseHighlightIndex(sorted, groupKey, tags);
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#8B95A1", letterSpacing: 0.5 }}>LENS RECOMMENDATION</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: "#191F28", margin: "10px 0 12px", lineHeight: 1.4 }}>
+        {hasHistory ? (
+          "고객님께 맞는 렌즈예요"
+        ) : (
+          <>
+            문진 결과에 맞는
+            <br />
+            렌즈 상품을 살펴보세요
+          </>
+        )}
+      </div>
+
+      <div
+        style={{
+          background: "#F9FAFB",
+          border: "1px solid #EEF0F3",
+          borderRadius: 14,
+          padding: "12px 14px",
+          marginBottom: 14,
+          fontSize: 12.5,
+          fontWeight: 600,
+          color: "#4B5563",
+          lineHeight: 1.55,
+        }}
+      >
+        {hasHistory ? (
+          <>
+            최근 구매하신 안경렌즈 도수와
+            <br />
+            비전체크 결과를 함께 분석했어요.
+          </>
+        ) : (
+          <>
+            비전체크에서 알려주신
+            <br />
+            생활습관과 눈의 불편함을 바탕으로 추천했어요.
+          </>
+        )}
+      </div>
+
+      {tierLabel && (
+        <div style={{ fontSize: 12.5, color: "#6B7280", marginBottom: 14 }}>
+          {tierLabel} · {design} 설계
+        </div>
+      )}
+
+      <PreExamNotice hasHistory={hasHistory} />
+
+      <TagOptionsStrip tags={tags} />
+
+      {sorted.map((p, i) => (
+        <ProductLadderCard
+          key={p.name + i}
+          product={p}
+          recommended={i === highlightIdx}
+          groupKey={groupKey}
+          showCurrent={hasHistory}
+          indexLabel={indexLabel}
+          reason={computeProductReason(p, { groupKey, tags, hasHistory, isTopPick: i === highlightIdx })}
+        />
+      ))}
+
+      {/* 근시 진행 관리가 필요해 보이는 어린이(q1="처음" + 눈 편안함/생활환경 축 "주의")에게는
+          위 일반 블루라이트 차단 렌즈와는 별도로, 성장기 근시 진행 억제 전용 렌즈(마이오 스마트·스텔리스트)를
+          추가 옵션으로 안내한다. 가격대가 완전히 다른 별도 제품군이라 같은 목록에 섞지 않고 구분해서 보여준다. */}
+      {groupKey === "child" && tags.some((t) => t.key === "myopia") && (
+        <div style={{ marginTop: 6, marginBottom: 4 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#191F28", marginBottom: 4 }}>
+            근시 진행이 걱정되신다면
+          </div>
+          <div style={{ fontSize: 11.5, color: "#8B95A1", lineHeight: 1.5, marginBottom: 10 }}>
+            성장기 근시 진행 속도를 늦추는 데 특화된 전용 설계 렌즈예요. 일반 렌즈보다 가격대가 높고,
+            착용 적합성은 매장에서 안경사 상담 후 확인이 필요해요.
+          </div>
+          {CHILD_MYOPIA_CONTROL_PRODUCTS.map((p) => (
+            <ProductLadderCard
+              key={p.name}
+              product={p}
+              recommended={false}
+              groupKey={null}
+              showCurrent={false}
+              reason="근시 진행을 늦추는 전용 설계 렌즈예요"
+            />
+          ))}
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, color: "#9CA3AF", textAlign: "center", margin: "12px 0 4px", lineHeight: 1.5 }}>
+        가격은 렌즈 기준이며 프레임은 별도예요.
+      </div>
+
+      <NavButtons
+        onBack={onBack}
+        backDisabled={false}
+        primaryLabel="가까운 매장 방문예약하기"
+        onPrimary={() => window.open("https://www.davichmarket.com/visit/store", "_blank", "noopener,noreferrer")}
+      />
+      <div style={{ textAlign: "center", marginTop: 14 }}>
+        <button
+          onClick={onRestart}
+          style={{
+            background: "none",
+            border: "none",
+            color: "#9CA3AF",
+            fontSize: 12.5,
+            cursor: "pointer",
+            textDecoration: "underline",
+          }}
+        >
+          처음부터 다시하기
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
+   메인 컴포넌트
+--------------------------------------------------------- */
+function VisionCheckRadar() {
+  const [groupKey, setGroupKey] = useState("child");
+  const [answersByGroup, setAnswersByGroup] = useState({
+    child: GROUPS.child.initial,
+    young: GROUPS.young.initial,
+    presby: GROUPS.presby.initial,
+  });
+
+  // STEP 2 — 나에게 맞는 안경렌즈 추천 화면 상태 (그룹별로 독립 관리)
+  // 검사 코스 추천 단계는 삭제되었고, 문진 결과 화면에서 바로 이 추천 화면으로 이어진다.
+  const [productOpenByGroup, setProductOpenByGroup] = useState({ child: false, young: false, presby: false });
+  const [rxByGroup, setRxByGroup] = useState({ child: {}, young: {}, presby: {} });
+
+  const group = GROUPS[groupKey];
+  const answers = answersByGroup[groupKey];
+  const productOpen = productOpenByGroup[groupKey];
+  const rx = rxByGroup[groupKey];
+  // 구매이력 유무는 고객에게 묻지 않고, (데모에서는 POS 조회를 대신하는) MOCK_RX_RECORD의
+  // 존재 여부로 시스템이 자동 판단한다.
+  const hasHistory = !!MOCK_RX_RECORD[groupKey];
+
+  const setAnswers = (next) => setAnswersByGroup((prev) => ({ ...prev, [groupKey]: next }));
+  const setRx = (v) => setRxByGroup((prev) => ({ ...prev, [groupKey]: v }));
+
+  const resetGroup = (key) => {
+    setAnswersByGroup((prev) => ({ ...prev, [key]: GROUPS[key].initial }));
+    setProductOpenByGroup((prev) => ({ ...prev, [key]: false }));
+    setRxByGroup((prev) => ({ ...prev, [key]: {} }));
+  };
+
+  // 안경렌즈 추천(STEP 2) 화면에서 "이전"으로 비전체크 결과 화면으로 되돌아가기
+  const closeProductFlow = (key) => {
+    setProductOpenByGroup((prev) => ({ ...prev, [key]: false }));
+  };
+
+  const knownSteps = useMemo(() => group.steps(answers), [group, answers]);
+  const currentQuestion =
+    knownSteps.length > 0 && answers[knownSteps[knownSteps.length - 1].key] === ""
+      ? knownSteps[knownSteps.length - 1]
+      : null;
+  const isQuestionPhase = currentQuestion !== null;
+  const answeredCount = isQuestionPhase ? knownSteps.length - 1 : knownSteps.length;
+
+  const scores = useMemo(() => group.score(answers), [group, answers]);
+
+  // 진행률 표시용 (질문 단계 + 결과 + 안경렌즈 추천 = 총 단계, 분기에 따라 유동적)
+  const totalEstimate = answeredCount + (isQuestionPhase ? 1 : 0) + 2;
+  const stepNum = productOpen ? totalEstimate : isQuestionPhase ? answeredCount + 1 : totalEstimate - 1;
+  const stepTotal = totalEstimate;
+  const stepLabel = productOpen ? "안경렌즈 추천" : isQuestionPhase ? "질문" : "비전체크 결과";
+
+  // 화면 전환 애니메이션 트리거용 키 — 값이 바뀔 때마다 아래 카드 영역이 리마운트되며 스르륵 나타나는 효과가 재생됨
+  // (그룹 탭 전환 시에도 다시 재생되도록 groupKey를 항상 포함)
+  const screenKey = productOpen
+    ? `${groupKey}:recommend`
+    : isQuestionPhase
+    ? `${groupKey}:q:${currentQuestion.key}`
+    : `${groupKey}:result`;
+
+  const goBackQuestion = () => {
+    if (isQuestionPhase) {
+      if (knownSteps.length <= 1) return; // 첫 질문이면 더 뒤로 갈 곳 없음
+      const prevKey = knownSteps[knownSteps.length - 2].key;
+      setAnswers({ ...answers, [prevKey]: "" });
+    } else {
+      // 결과 화면 → 마지막으로 답한 질문으로 되돌아가기
+      const lastKey = knownSteps[knownSteps.length - 1]?.key;
+      if (lastKey) setAnswers({ ...answers, [lastKey]: "" });
+    }
+  };
+
+  return (
+    <div
+      style={{
+        fontFamily: "'Pretendard', 'Malgun Gothic', sans-serif",
+        maxWidth: 480,
+        margin: "0 auto",
+        padding: 24,
+        background: "#F2F4F6",
+        minHeight: 600,
+        WebkitFontSmoothing: "antialiased",
+      }}
+    >
+      {/* 그룹(고객 유형) 선택 탭 — 데모용, 실제 서비스에서는 사전 배정됨 (세그먼트 컨트롤 스타일) */}
+      <div
+        style={{
+          display: "flex",
+          gap: 4,
+          marginBottom: 20,
+          padding: 4,
+          background: "#EEF1F4",
+          borderRadius: 14,
+        }}
+      >
+        {Object.entries(GROUPS).map(([key, g]) => (
+          <button
+            key={key}
+            onClick={() => {
+              if (key !== groupKey) resetGroup(groupKey);
+              setGroupKey(key);
+            }}
+            style={{
+              flex: 1,
+              padding: "9px 0",
+              borderRadius: 11,
+              border: "none",
+              fontWeight: 700,
+              fontSize: 12.5,
+              cursor: "pointer",
+              transition: "all .15s",
+              background: groupKey === key ? "#fff" : "transparent",
+              color: groupKey === key ? g.color : "#8A93A3",
+              boxShadow: groupKey === key ? "0 1px 4px rgba(16,24,40,0.10)" : "none",
+            }}
+          >
+            {g.label}
+          </button>
+        ))}
+      </div>
+
+      <ProgressHeader stepNum={stepNum} stepTotal={stepTotal} stepLabel={stepLabel} />
+
+      <div
+        style={{
+          background: "#fff",
+          border: "1px solid #EEF0F3",
+          borderRadius: 20,
+          padding: 20,
+          boxShadow: "0 1px 2px rgba(16,24,40,0.03)",
+        }}
+      >
+        <div key={screenKey} className="screen-anim">
+        {!productOpen && isQuestionPhase && (
+          <>
+            <StepQuestion
+              title={currentQuestion.title}
+              options={currentQuestion.options}
+              onSelect={(v) => setAnswers({ ...answers, [currentQuestion.key]: v })}
+            />
+            {knownSteps.length > 1 && (
+              <div style={{ marginTop: 20 }}>
+                <button
+                  onClick={goBackQuestion}
+                  style={{
+                    padding: "12px 24px",
+                    borderRadius: 14,
+                    border: "none",
+                    background: "#EEF1F4",
+                    color: "#374151",
+                    fontWeight: 700,
+                    fontSize: 14,
+                    cursor: "pointer",
+                  }}
+                >
+                  이전
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {!productOpen && !isQuestionPhase && (
+          <>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#8B95A1", letterSpacing: 0.5 }}>
+              VISION CHECK RESULT
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "#191F28", margin: "10px 0 18px", lineHeight: 1.4 }}>
+              고객님의 사전 문진
+              <br />
+              결과 입니다.
+            </div>
+            <ScoreTable axes={AXES} scores={scores} />
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: "#8B95A1", margin: "2px 0 10px" }}>
+              항목별 상세 결과
+            </div>
+            {AXES.map((ax) => (
+              <AxisRow
+                key={ax.key}
+                axisLabel={ax.label}
+                score={scores[ax.key]}
+                tier={tierOf(scores[ax.key])}
+                message={resolveMessage(
+                  groupKey,
+                  ax.key,
+                  tierOf(scores[ax.key]),
+                  answers,
+                  group.messages[ax.key][tierOf(scores[ax.key])]
+                )}
+              />
+            ))}
+            <NavButtons
+              onBack={goBackQuestion}
+              backDisabled={false}
+              backLabel="이전"
+              primaryLabel="나에게 맞는 안경렌즈 추천받기 →"
+              onPrimary={() => {
+                // 구매이력 유무를 고객에게 묻지 않고 자동 조회 후 바로 추천 화면으로 이동한다.
+                const mock = MOCK_RX_RECORD[groupKey];
+                setRx(mock ? mock.rx : {});
+                setProductOpenByGroup((prev) => ({ ...prev, [groupKey]: true }));
+              }}
+            />
+          </>
+        )}
+
+        {productOpen && (
+          <LensRecommendation
+            groupKey={groupKey}
+            answers={answers}
+            scores={scores}
+            rx={rx}
+            hasHistory={hasHistory}
+            onBack={() => closeProductFlow(groupKey)}
+            onRestart={() => resetGroup(groupKey)}
+          />
+        )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<VisionCheckRadar />);
+</script>
+</body>
+</html>
