@@ -294,9 +294,6 @@ h3{font-size:17px;line-height:1.45;letter-spacing:-.2px}
 .tabs{display:flex;gap:8px;overflow:auto;padding-bottom:2px}
 .tab{white-space:nowrap;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:9px 13px;font-size:12.5px;font-weight:800}
 .tab.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
-.pricebar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}
-.sortbtn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 11px;font-size:11.5px;font-weight:750;color:var(--muted)}
-.sortbtn svg{width:12px;height:12px}
 .lensrow{display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:var(--radius-md);padding:14px;background:var(--surface);margin-top:10px}
 .lensrow .info{flex:1;min-width:0}
 .lensrow .info .name{display:flex;align-items:center;gap:6px;font-weight:800;font-size:14.5px}
@@ -757,14 +754,6 @@ h3{font-size:17px;line-height:1.45;letter-spacing:-.2px}
         <button class="tab" onclick="showPriceTab('tint', this)">변색렌즈</button>
         <button class="tab" onclick="showPriceTab('myopia', this)">근시억제 기능성</button>
       </div>
-
-      <div class="pricebar">
-        <button class="sortbtn" id="sortBtn" onclick="toggleSort()" style="margin-left:auto">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16M4 7l3-3 3 3M17 20V4M14 17l3 3 3-3"/></svg>
-          <span id="sortLabel">추천순</span>
-        </button>
-      </div>
-
 
       <div class="sellingCard" id="singleSelling">
         <div class="sellingCard-head">
@@ -1317,7 +1306,6 @@ var priceData = {
   }
 };
 var priceKey = 'single';
-var sortMode = 'default'; // default | asc
 
 function priceLabel(item){ return item.max>=60 ? item.min+'만원대 이상' : item.min+'만~'+item.max+'만원대'; }
 
@@ -1412,12 +1400,6 @@ function showPriceTab(key, el){
   });
   renderPriceList();
 }
-function toggleSort(){
-  sortMode = sortMode==='default' ? 'asc' : 'default';
-  document.getElementById('sortLabel').textContent = sortMode==='asc' ? '낮은가격순' : '추천순';
-  renderPriceList();
-}
-
 function seriesHeadHTML(g){
   return '<button type="button" class="priceSeries-head" onclick="toast(\'상품 상세페이지로 연결 예정 (준비중)\')">'+
       '<span class="priceSeries-titles"><span class="priceSeries-brand">'+g.brand+'</span><span class="priceSeries-name">'+g.series+'</span></span>'+
@@ -1435,9 +1417,7 @@ function brandBannerHTML(g){
 
 function renderSimpleGroups(groups, noteText, showRatio){
   if(showRatio === undefined) showRatio = true;
-  var sortBtn = document.getElementById('sortBtn');
   var noteEl = document.getElementById('priceNoteText');
-  if(sortBtn) sortBtn.hidden = true;
   if(noteEl) noteEl.textContent = noteText;
   document.getElementById('priceList').innerHTML = groups.map(function(g){
     return '<div class="priceSeries">'+
@@ -1462,9 +1442,7 @@ function renderSimpleGroups(groups, noteText, showRatio){
 }
 
 function renderSingleTable(){
-  var sortBtn = document.getElementById('sortBtn');
   var noteEl = document.getElementById('priceNoteText');
-  if(sortBtn) sortBtn.hidden = true;
   if(noteEl) noteEl.textContent = '※ 다비치 안경렌즈 라인업 공식 가격표(단초점) 기준입니다. 실제 가격은 매장 및 프로모션에 따라 달라질 수 있습니다.';
   var groups = priceData.single.seriesGroups;
   document.getElementById('priceList').innerHTML = groups.map(function(g){
