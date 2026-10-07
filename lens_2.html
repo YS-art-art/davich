@@ -38,7 +38,7 @@
   --font-display:'Noto Sans KR','Pretendard',-apple-system,BlinkMacSystemFont,'Malgun Gothic',sans-serif;
   --font-body:'Noto Sans KR','Pretendard',-apple-system,BlinkMacSystemFont,'Malgun Gothic',sans-serif;
   --font-mono:'JetBrains Mono',ui-monospace,'SFMono-Regular',monospace;
-  --nav-h:64px;
+  --nav-h:68px;
   color-scheme:light;
 }
 :root[data-theme="dark"]{
@@ -606,12 +606,13 @@ h3{font-size:17px;line-height:1.45;letter-spacing:-.2px}
 .secondary svg{width:14px;height:14px}
 
 /* ---------- bottom nav ---------- */
-.bottomnav{position:sticky;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(5,1fr);background:color-mix(in srgb,var(--surface) 94%,transparent);backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:8px 4px calc(8px + env(safe-area-inset-bottom))}
-.navitem{border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 2px;color:var(--muted-2);border-radius:12px}
-.navitem svg{width:20px;height:20px}
-.navitem span{font-size:10px;font-weight:750}
-.navitem.active{color:var(--ink);font-weight:800}
-.navitem.active span{font-weight:800}
+.bottomnav{--navact:#2f6df6;position:sticky;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(6,1fr);background:color-mix(in srgb,var(--surface) 96%,var(--ink));border-top:1px solid var(--line);padding:6px 2px calc(6px + env(safe-area-inset-bottom))}
+:root[data-theme="dark"] .bottomnav{--navact:var(--accent)}
+.navitem{border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;color:var(--ink);border-radius:12px;font-family:inherit;cursor:pointer}
+.navitem svg{width:24px;height:24px}
+.navitem span{font-size:11px;font-weight:700;letter-spacing:-.02em;white-space:nowrap}
+.navitem.active{color:var(--navact)}
+.navitem:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
 /* ---------- sheet / modal ---------- */
 .overlay{position:fixed;inset:0;background:rgba(10,12,18,.5);z-index:80;display:none;align-items:flex-end;justify-content:center}
@@ -1286,11 +1287,12 @@ h3{font-size:17px;line-height:1.45;letter-spacing:-.2px}
 
   <!-- ================= BOTTOM NAV ================= -->
   <nav class="bottomnav" aria-label="주요 메뉴">
-    <button class="navitem active" data-s="home" onclick="show('home')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9.5h12V10"/></svg><span>홈</span></button>
-    <button class="navitem" data-s="price" onclick="show('price')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5h8M7 9h8M9 5c3 2.2 3 8.8 0 11M9 5H6M9 16h3"/></svg><span>가격</span></button>
-    <button class="navitem" data-s="compare" onclick="show('compare')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8.2" cy="12" r="5"/><circle cx="15.8" cy="12" r="5"/></svg><span>비교</span></button>
-    <button class="navitem" data-s="features" onclick="show('features')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/></svg><span>기능</span></button>
-    <a class="navitem" data-s="finder" href="https://ys-art-art.github.io/davich/vision_check_case_B.html" style="text-decoration:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.4"/></svg><span>비전체크</span></a>
+    <button class="navitem active" data-s="home" onclick="show('home')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 11 12 3.8 20.5 11"/><path d="M5.5 9.6V20h4.6v-5.4h3.8V20h4.6V9.6"/></svg><span>홈</span></button>
+    <button class="navitem" onclick="toast('카테고리로 연결 예정 (준비중)')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6.6" height="6.6" rx="1.6"/><rect x="13.4" y="4" width="6.6" height="6.6" rx="1.6"/><rect x="4" y="13.4" width="6.6" height="6.6" rx="1.6"/><rect x="13.4" y="13.4" width="6.6" height="6.6" rx="1.6"/></svg><span>카테고리</span></button>
+    <button class="navitem" onclick="toast('방문예약으로 연결 예정 (준비중)')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.2"/><path d="M8 3v4M16 3v4M3.5 10h17"/><path d="M12 18.4c-1.9-1.5-2.9-2.6-2.9-3.8a2.9 2.9 0 0 1 5.8 0c0 1.2-1 2.3-2.9 3.8z"/></svg><span>방문예약</span></button>
+    <button class="navitem" onclick="openSaved()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.2s-7.6-4.6-7.6-10.4A4.4 4.4 0 0 1 12 7.2a4.4 4.4 0 0 1 7.6 2.6c0 5.8-7.6 10.4-7.6 10.4z"/></svg><span>찜</span></button>
+    <button class="navitem" onclick="toast('MY로 연결 예정 (준비중)')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.4" r="3.8"/><path d="M4.6 20.4c.7-3.9 3.6-6.1 7.4-6.1s6.7 2.2 7.4 6.1"/></svg><span>MY</span></button>
+    <button class="navitem" onclick="toast('멤버십으로 연결 예정 (준비중)')"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="5" width="1.6" height="14"/><rect x="7" y="5" width="1" height="14"/><rect x="9.6" y="5" width="2.6" height="14"/><rect x="13.8" y="5" width="1" height="14"/><rect x="16.2" y="5" width="1.6" height="14"/><rect x="19.4" y="5" width="0.9" height="14"/></svg><span>멤버십</span></button>
   </nav>
 </div>
 
