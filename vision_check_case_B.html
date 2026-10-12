@@ -162,13 +162,6 @@ const AXIS_VISUAL = {
   ax4: { emoji: "🏙️", tone: PASTEL.sky },
 };
 
-// 그룹(연령대) 탭 아이콘
-const GROUP_VISUAL = {
-  child: { emoji: "🧒", tone: PASTEL.sky },
-  young: { emoji: "🧑", tone: PASTEL.blue },
-  presby: { emoji: "🧓", tone: PASTEL.presbyGreen },
-};
-
 // 문구 특이 케이스 — 그룹/응답에 따라 기본 메시지를 다른 문구로 대체
 function resolveMessage(groupKey, axKey, tier, answers, defaultMsg) {
   if (groupKey === "young" && axKey === "ax5" && tier === "주의" && answers.q1 === "안경 사용 중") {
@@ -983,8 +976,9 @@ function resolvePresbyCategoryKeys(a) {
     if (a.q3a === "그래요(Yes)") return ["progressive", "fatigue"];
     return a.q4 === "네" ? ["progressive", "fatigue"] : ["magnifier", "progressive", "fatigue"];
   }
-  // 원거리(거실·교실·집/사무실·운전)
-  return ["progressive", "fatigue"];
+  // 원거리(거실·교실·집/사무실·운전) — 운전 등 실외 노출이 잦은 응답자군이라
+  // 누진다초점/안정피로감소와 함께 변색 렌즈도 후보로 안내한다.
+  return ["progressive", "fatigue", "photochromic"];
 }
 
 function resolveCategoryRecommendation(groupKey, answers) {
@@ -2148,14 +2142,13 @@ function VisionCheckRadar() {
         style={{
           display: "flex",
           gap: 4,
-          marginBottom: 22,
+          marginBottom: 20,
           padding: 4,
           background: "#EEF1F4",
-          borderRadius: 16,
+          borderRadius: 14,
         }}
       >
         {Object.entries(GROUPS).map(([key, g]) => {
-          const visual = GROUP_VISUAL[key] || { emoji: "🙂", tone: PASTEL.gray };
           const active = groupKey === key;
           return (
             <button
@@ -2166,15 +2159,11 @@ function VisionCheckRadar() {
               }}
               style={{
                 flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 6,
-                padding: "10px 0 9px",
+                padding: "9px 0",
                 borderRadius: 5,
                 border: "none",
                 fontWeight: 700,
-                fontSize: 12,
+                fontSize: 12.5,
                 cursor: "pointer",
                 transition: "all .15s",
                 background: active ? "#fff" : "transparent",
@@ -2182,11 +2171,27 @@ function VisionCheckRadar() {
                 boxShadow: active ? "0 1px 4px rgba(16,24,40,0.10)" : "none",
               }}
             >
-              <IconTile emoji={visual.emoji} tone={visual.tone} size={26} />
               {g.label}
             </button>
           );
         })}
+      </div>
+
+      <div
+        style={{
+          background: "#FDECEA",
+          border: "1.5px solid #F5C2BE",
+          borderRadius: 14,
+          padding: "14px 16px",
+          marginBottom: 20,
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 800, color: "#C62828", lineHeight: 1.55 }}>
+          나이대는 현재 시안에서의 예시이며, 실제 운영 화면에서는 고객의 회원정보 연령 데이터를 활용해 그 나이대에 맞는 질문으로 바로 시작됩니다. (위와 같은 나이대 선택 화면 없음)
+        </div>
+        <div style={{ fontSize: 11.5, color: "#A14A42", lineHeight: 1.55, marginTop: 6 }}>
+          생년월일 데이터가 없는 고객의 경우에는 생년월일을 먼저 입력받은 후 나이대에 맞는 질문이 시작돼요.
+        </div>
       </div>
 
       <ProgressHeader stepNum={stepNum} stepTotal={stepTotal} stepLabel={stepLabel} />
