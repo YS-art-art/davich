@@ -362,7 +362,7 @@ const GROUPS = {
       ax3: {
         양호: "눈의 피로도가 낮은 편입니다",
         보통: "피로가 누적되고 있을 수 있어요",
-        주의: "눈 피로나 두통이 잦으시면 안정피로감소 기능 렌즈를 검토해드릴게요",
+        주의: "눈 피로나 두통이 잦으시면 안정피로 기능성 렌즈를 검토해드릴게요",
       },
       ax4: {
         양호: "다양한 거리를 균형 있게 사용하고 계세요",
@@ -931,14 +931,14 @@ function resolveProductSet(groupKey, rx) {
    그 함수를 그대로 재사용해 중복 로직을 만들지 않았다.
 =========================================================== */
 const PRODUCT_CATEGORIES = {
-  bluecut: { label: "블루라이트 차단 제품", icon: "🔵", desc: "화면에서 나오는 블루라이트를 줄여 눈부심과 피로를 낮춰줘요" },
-  fatigue: { label: "안정피로감소 기능성 제품", icon: "🌿", desc: "장시간 사용 후 쌓이는 눈의 피로를 줄이는 데 도움을 줘요" },
-  myopiaControl: { label: "근시억제 렌즈 제품", icon: "📈", desc: "성장기 근시가 더 진행되지 않도록 관리해주는 전용 설계 렌즈예요" },
-  photochromic: { label: "변색 렌즈 제품", icon: "🌗", desc: "실내에서는 투명하고, 야외에서는 선글라스처럼 색이 짙어지는 렌즈예요" },
-  bluecutUv: { label: "블루라이트+UV 차단 제품", icon: "☀️", desc: "블루라이트 차단에 자외선(UV) 차단까지 더해진 제품이에요" },
-  progressive: { label: "누진다초점 제품", icon: "🔁", desc: "하나의 렌즈로 먼 곳과 가까운 곳을 모두 볼 수 있게 도와줘요" },
-  magnifier: { label: "돋보기 제품", icon: "🔍", desc: "가까운 거리 작업에 특화된 돋보기 전용 렌즈예요" },
-  homepiece: { label: "홈피스 돋보기 제품", icon: "🏠", desc: "집·사무실 등 실내 근거리 작업에 최적화된 돋보기예요" },
+  bluecut: { label: "블루라이트 차단 렌즈", icon: "🔵", desc: "화면에서 나오는 블루라이트를 줄여 눈부심과 피로를 낮춰줘요" },
+  fatigue: { label: "안정피로 기능성 렌즈", icon: "🌿", desc: "장시간 사용 후 쌓이는 눈의 피로를 줄이는 데 도움을 줘요" },
+  myopiaControl: { label: "근시억제 렌즈", icon: "📈", desc: "성장기 근시가 더 진행되지 않도록 관리해주는 전용 설계 렌즈예요" },
+  photochromic: { label: "변색 렌즈", icon: "🌗", desc: "실내에서는 투명하고, 야외에서는 선글라스처럼 색이 짙어지는 렌즈예요" },
+  bluecutUv: { label: "블루라이트+UV 차단 렌즈", icon: "☀️", desc: "블루라이트 차단에 자외선(UV) 차단까지 더해진 렌즈예요" },
+  progressive: { label: "누진다초점 렌즈", icon: "🔁", desc: "하나의 렌즈로 먼 곳과 가까운 곳을 모두 볼 수 있게 도와줘요" },
+  magnifier: { label: "돋보기 렌즈", icon: "🔍", desc: "가까운 거리 작업에 특화된 돋보기 전용 렌즈예요" },
+  homepiece: { label: "홈피스 돋보기 렌즈", icon: "🏠", desc: "집·사무실 등 실내 근거리 작업에 최적화된 돋보기예요" },
 };
 
 function resolveChildCategoryKeys(a) {
@@ -1044,12 +1044,12 @@ function groupCategoriesByProducts(groupKey, categoryKeys) {
 // 목록에 없는 조합이 생기면 각 카테고리 라벨/설명을 " · "/공백으로 이어 붙여 대체한다.
 const CATEGORY_GROUP_OVERRIDES = {
   "fatigue+progressive": {
-    label: "누진다초점 · 안정피로감소 기능성 제품",
+    label: "누진다초점 · 안정피로 기능성 렌즈",
     icon: "🔁",
     desc: "하나의 렌즈로 먼 곳과 가까운 곳을 모두 보이게 하면서, 장시간 사용 후 쌓이는 눈의 피로도 함께 줄여줘요",
   },
   "homepiece+magnifier": {
-    label: "돋보기 · 홈피스 돋보기 제품",
+    label: "돋보기 · 홈피스 돋보기 렌즈",
     icon: "🔍",
     desc: "가까운 거리 작업에 특화된 돋보기 전용 렌즈예요. 집·사무실 등 실내에서 쓰기 좋아요",
   },
@@ -1641,10 +1641,10 @@ function productMarketUrl(product) {
 
 // 제품군 카드에서 개별 상품을 나열하는 대신, 마켓의 해당 제품군 검색 결과 화면으로 바로 이동시킨다
 // (화면 스크롤이 길어지는 것을 막기 위함). 검색어는 새로 지어내지 않고, 이미 검증된 제품군 라벨
-// 문자열에서 "제품" 접미사와 공백만 제거해 그대로 파생시킨다.
-// 예: "블루라이트 차단 제품" → "블루라이트차단"
+// 문자열에서 "제품"/"렌즈" 접미사와 공백만 제거해 그대로 파생시킨다.
+// 예: "블루라이트 차단 렌즈" → "블루라이트차단"
 function deriveCategorySearchKeyword(label) {
-  return label.replace(/\s*제품$/, "").replace(/\s+/g, "");
+  return label.replace(/\s*(제품|렌즈)$/, "").replace(/\s+/g, "");
 }
 // 합쳐진 카테고리(같은 상품 배열을 공유하는 조합)는 두 라벨을 이어붙인 어색한 검색어 대신,
 // 그 조합을 대표하는 한 카테고리의 검색어를 사용한다.
@@ -2021,7 +2021,7 @@ function CategorySection({ groupKey, categoryKeys, products }) {
             lineHeight: 1.5,
           }}
         >
-          이 제품군은 매장에서 눈 상태를 확인한 후 맞는 상품을 안내해드려요.
+          이 렌즈군은 매장에서 눈 상태를 확인한 후 맞는 렌즈를 안내해드려요.
         </div>
       )}
     </Wrapper>
@@ -2041,11 +2041,11 @@ function CategoryRecommendation({ groupKey, answers, onBack, onRestart }) {
 
   return (
     <div>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#8B95A1", letterSpacing: 0.5 }}>PRODUCT CATEGORY</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#8B95A1", letterSpacing: 0.5 }}>LENS CATEGORY</div>
       <div style={{ fontSize: 20, fontWeight: 800, color: "#191F28", margin: "10px 0 12px", lineHeight: 1.4 }}>
         문진 결과에 맞는
         <br />
-        제품군을 안내드려요
+        렌즈군을 안내드려요
       </div>
 
       <div
@@ -2065,7 +2065,7 @@ function CategoryRecommendation({ groupKey, answers, onBack, onRestart }) {
       >
         <span style={{ opacity: 0.7, fontWeight: 600 }}>비전체크 답변 기반</span>
         <span style={{ width: 3, height: 3, borderRadius: "50%", background: "currentColor", opacity: 0.5, flexShrink: 0 }} />
-        이 제품군부터 확인해보세요
+        이 렌즈군부터 확인해보세요
       </div>
 
       <PreExamNotice hasHistory={false} />
@@ -3002,7 +3002,7 @@ const GROUPS = {
       ax3: {
         양호: "눈의 피로도가 낮은 편입니다",
         보통: "피로가 누적되고 있을 수 있어요",
-        주의: "눈 피로나 두통이 잦으시면 안정피로감소 기능 렌즈를 검토해드릴게요",
+        주의: "눈 피로나 두통이 잦으시면 안정피로 기능성 렌즈를 검토해드릴게요",
       },
       ax4: {
         양호: "다양한 거리를 균형 있게 사용하고 계세요",
@@ -3498,14 +3498,14 @@ function resolveChildYoungTiers(groupKey) {
    그 함수를 그대로 재사용해 중복 로직을 만들지 않았다.
 =========================================================== */
 const PRODUCT_CATEGORIES = {
-  bluecut: { label: "블루라이트 차단 제품", icon: "🔵", tone: PASTEL.blue, desc: "화면에서 나오는 블루라이트를 줄여 눈부심과 피로를 낮춰줘요" },
-  fatigue: { label: "안정피로감소 기능성 제품", icon: "🌿", tone: PASTEL.green, desc: "장시간 사용 후 쌓이는 눈의 피로를 줄이는 데 도움을 줘요" },
-  myopiaControl: { label: "근시억제 렌즈 제품", icon: "📈", tone: PASTEL.purple, desc: "성장기 근시가 더 진행되지 않도록 관리해주는 전용 설계 렌즈예요" },
-  photochromic: { label: "변색 렌즈 제품", icon: "🌗", tone: PASTEL.teal, desc: "실내에서는 투명하고, 야외에서는 선글라스처럼 색이 짙어지는 렌즈예요" },
-  bluecutUv: { label: "블루라이트+UV 차단 제품", icon: "☀️", tone: PASTEL.orange, desc: "블루라이트 차단에 자외선(UV) 차단까지 더해진 제품이에요" },
-  progressive: { label: "누진다초점 제품", icon: "🔁", tone: PASTEL.sky, desc: "하나의 렌즈로 먼 곳과 가까운 곳을 모두 볼 수 있게 도와줘요" },
-  magnifier: { label: "돋보기 제품", icon: "🔍", tone: PASTEL.amber, desc: "가까운 거리 작업에 특화된 돋보기 전용 렌즈예요" },
-  homepiece: { label: "홈피스 돋보기 제품", icon: "🏠", tone: PASTEL.pink, desc: "집·사무실 등 실내 근거리 작업에 최적화된 돋보기예요" },
+  bluecut: { label: "블루라이트 차단 렌즈", icon: "🔵", tone: PASTEL.blue, desc: "화면에서 나오는 블루라이트를 줄여 눈부심과 피로를 낮춰줘요" },
+  fatigue: { label: "안정피로 기능성 렌즈", icon: "🌿", tone: PASTEL.green, desc: "장시간 사용 후 쌓이는 눈의 피로를 줄이는 데 도움을 줘요" },
+  myopiaControl: { label: "근시억제 렌즈", icon: "📈", tone: PASTEL.purple, desc: "성장기 근시가 더 진행되지 않도록 관리해주는 전용 설계 렌즈예요" },
+  photochromic: { label: "변색 렌즈", icon: "🌗", tone: PASTEL.teal, desc: "실내에서는 투명하고, 야외에서는 선글라스처럼 색이 짙어지는 렌즈예요" },
+  bluecutUv: { label: "블루라이트+UV 차단 렌즈", icon: "☀️", tone: PASTEL.orange, desc: "블루라이트 차단에 자외선(UV) 차단까지 더해진 렌즈예요" },
+  progressive: { label: "누진다초점 렌즈", icon: "🔁", tone: PASTEL.sky, desc: "하나의 렌즈로 먼 곳과 가까운 곳을 모두 볼 수 있게 도와줘요" },
+  magnifier: { label: "돋보기 렌즈", icon: "🔍", tone: PASTEL.amber, desc: "가까운 거리 작업에 특화된 돋보기 전용 렌즈예요" },
+  homepiece: { label: "홈피스 돋보기 렌즈", icon: "🏠", tone: PASTEL.pink, desc: "집·사무실 등 실내 근거리 작업에 최적화된 돋보기예요" },
 };
 
 function resolveChildCategoryKeys(a) {
@@ -3612,13 +3612,13 @@ function groupCategoriesByProducts(groupKey, categoryKeys) {
 // 목록에 없는 조합이 생기면 각 카테고리 라벨/설명을 " · "/공백으로 이어 붙여 대체한다.
 const CATEGORY_GROUP_OVERRIDES = {
   "fatigue+progressive": {
-    label: "누진다초점 · 안정피로감소 기능성 제품",
+    label: "누진다초점 · 안정피로 기능성 렌즈",
     icon: "🔁",
     tone: PASTEL.sky,
     desc: "하나의 렌즈로 먼 곳과 가까운 곳을 모두 보이게 하면서, 장시간 사용 후 쌓이는 눈의 피로도 함께 줄여줘요",
   },
   "homepiece+magnifier": {
-    label: "돋보기 · 홈피스 돋보기 제품",
+    label: "돋보기 · 홈피스 돋보기 렌즈",
     icon: "🔍",
     tone: PASTEL.amber,
     desc: "가까운 거리 작업에 특화된 돋보기 전용 렌즈예요. 집·사무실 등 실내에서 쓰기 좋아요",
@@ -4094,10 +4094,10 @@ function productMarketUrl(product) {
 
 // 제품군 카드에서 개별 상품을 나열하는 대신, 마켓의 해당 제품군 검색 결과 화면으로 바로 이동시킨다
 // (화면 스크롤이 길어지는 것을 막기 위함). 검색어는 새로 지어내지 않고, 이미 검증된 제품군 라벨
-// 문자열에서 "제품" 접미사와 공백만 제거해 그대로 파생시킨다.
-// 예: "블루라이트 차단 제품" → "블루라이트차단"
+// 문자열에서 "제품"/"렌즈" 접미사와 공백만 제거해 그대로 파생시킨다.
+// 예: "블루라이트 차단 렌즈" → "블루라이트차단"
 function deriveCategorySearchKeyword(label) {
-  return label.replace(/\s*제품$/, "").replace(/\s+/g, "");
+  return label.replace(/\s*(제품|렌즈)$/, "").replace(/\s+/g, "");
 }
 // 합쳐진 카테고리(같은 상품 배열을 공유하는 조합)는 두 라벨을 이어붙인 어색한 검색어 대신,
 // 그 조합을 대표하는 한 카테고리의 검색어를 사용한다.
@@ -4471,7 +4471,7 @@ function CategorySection({ groupKey, categoryKeys, products }) {
             lineHeight: 1.55,
           }}
         >
-          이 제품군은 매장에서 눈 상태를 확인한 후 맞는 상품을 안내해드려요.
+          이 렌즈군은 매장에서 눈 상태를 확인한 후 맞는 렌즈를 안내해드려요.
         </div>
       )}
     </Wrapper>
@@ -4491,11 +4491,11 @@ function CategoryRecommendation({ groupKey, answers, onBack, onRestart }) {
 
   return (
     <div>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#8B95A1", letterSpacing: 0.5 }}>PRODUCT CATEGORY</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#8B95A1", letterSpacing: 0.5 }}>LENS CATEGORY</div>
       <div style={{ fontSize: 20, fontWeight: 800, color: "#191F28", margin: "10px 0 12px", lineHeight: 1.4 }}>
         문진 결과에 맞는
         <br />
-        제품군을 안내드려요
+        렌즈군을 안내드려요
       </div>
 
       <div
@@ -4513,7 +4513,7 @@ function CategoryRecommendation({ groupKey, answers, onBack, onRestart }) {
       >
         <span style={{ opacity: 0.7, fontWeight: 600 }}>비전체크 답변 기반</span>
         <span style={{ opacity: 0.5 }}> · </span>
-        이 제품군부터 확인해보세요
+        이 렌즈군부터 확인해보세요
       </div>
 
       <PreExamNotice hasHistory={false} />
