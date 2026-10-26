@@ -243,7 +243,7 @@
 
     var items = products(cat), total = items.length, show = items.slice(0, st.shown);
     var filterTxt = (g.label ? g.label + ' · ' : '') + (st.brand === 'ALL' ? '전체' : st.brand);
-    h += '<div class="hr"></div><div class="countrow"><div class="count">총 ' + total + '개 <span>· ' + esc(filterTxt) + '</span></div>' +
+    h += '<div class="countrow"><div class="count">총 ' + total + '개 <span>· ' + esc(filterTxt) + '</span></div>' +
       '<button class="sort">인기순 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>';
 
     if (cat.layout === 'list') {
